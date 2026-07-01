@@ -1,0 +1,92 @@
+# CP Contest Bot
+
+A Discord bot that connects competitive-programming platforms: it reminds a server
+of upcoming contests (Codeforces, LeetCode, CodeChef, AtCoder, …) and lets members
+link and show off their handles.
+
+## Features
+
+- **Contest reminders** — posts to a chosen channel at configurable lead times
+  (default 24 h and 1 h before). Sourced from [clist.by](https://clist.by) with a
+  Codeforces-API fallback.
+- **`/contests`** — list upcoming contests on demand.
+- **Account linking** — `/link`, `/verify`, `/unlink` with ownership verification
+  (no passwords: you place a one-time token in your platform profile).
+- **`/profile`** — show verified handles with live rating / solved counts.
+
+## Slash commands
+
+| Command | What it does |
+|---|---|
+| `/contests [limit]` | List upcoming contests |
+| `/setchannel [channel]` | Choose the reminder channel *(Manage Server)* |
+| `/setrole [role]` | Ping a role on reminders, or clear it *(Manage Server)* |
+| `/link <platform> <handle>` | Start linking a handle |
+| `/verify <platform>` | Confirm the token you placed on your profile |
+| `/unlink <platform>` | Remove a linked handle |
+| `/profile [member]` | Show CP profiles |
+
+## Setup
+
+1. **Create the bot application**
+   - Go to <https://discord.com/developers/applications> → *New Application*.
+   - *Bot* tab → *Reset Token* → copy the token.
+   - *Installation* / *OAuth2* → invite with the `bot` and `applications.commands`
+     scopes and permissions: *Send Messages*, *Embed Links*.
+
+2. **Get a clist.by key** (recommended)
+   - Register at <https://clist.by>, then open <https://clist.by/api/v4/doc/> to
+     find your username and API key.
+   - Without it the bot still works but only shows Codeforces contests.
+
+3. **Configure**
+   ```sh
+   cp .env.example .env      # then edit .env with your tokens
+   ```
+
+4. **Install & run** (Python 3.11+)
+   ```sh
+   python -m venv .venv
+   .venv\Scripts\activate        # Windows (PowerShell: .venv\Scripts\Activate.ps1)
+   pip install -r requirements.txt
+   python -m bot.main
+   ```
+
+On first run the bot syncs its slash commands globally (can take a minute to appear).
+In your server, run `/setchannel` to pick where reminders go.
+
+## Project layout
+
+```
+bot/
+  main.py            entrypoint + bot lifecycle
+  config.py          env/.env configuration
+  db.py              SQLite (aiosqlite) persistence
+  services.py        contest fetching (clist + CF fallback, de-dup)
+  platforms/
+    base.py          Contest / PlatformUser models
+    clist.py         aggregator schedule source
+    codeforces.py    official CF API (schedule, user, verify)
+    leetcode.py      unofficial GraphQL (user, verify)
+    registry.py      platform lookup/verify registry
+  cogs/
+    contests.py      /contests, /setchannel, /setrole + reminder scheduler
+    linking.py       /link, /verify, /unlink, /profile
+```
+
+## Notes & limits
+
+- **LeetCode / CodeChef have no official APIs.** LeetCode uses the site's GraphQL
+  endpoint; it can break if they change it. CodeChef schedule comes via clist.by.
+- Verification proves handle *ownership*, not a real login — platforms don't offer
+  third-party OAuth.
+- Reminders are per-server subscriptions, not per-user registration (the platforms
+  don't expose who registered for a contest).
+- For 24/7 uptime, host on a small always-on VPS / Railway / Fly.io — free tiers that
+  sleep will drop the gateway connection.
+
+## Roadmap
+
+- CodeChef & AtCoder user lookup for `/profile`
+- Per-user timezone + DM reminders
+- Server leaderboards and post-contest rating-change announcements
