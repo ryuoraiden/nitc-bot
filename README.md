@@ -1,8 +1,13 @@
-# CP Contest Bot
+# NITC Bot
 
-A Discord bot that connects competitive-programming platforms: it reminds a server
-of upcoming contests (Codeforces, LeetCode, CodeChef, AtCoder, …) and lets members
-link and show off their handles.
+A community Discord bot for the NITC server. It's meant to grow into a general
+purpose bot for whatever the server finds useful, and contributions are welcome
+(see [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+The first feature set is competitive-programming tooling: it reminds a server of
+upcoming contests (Codeforces, LeetCode, CodeChef, AtCoder, …) and lets members
+link and show off their handles. More features will be added over time based on
+suggestions from the server.
 
 ## Features
 
