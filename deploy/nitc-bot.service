@@ -1,0 +1,19 @@
+[Unit]
+Description=NITC Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nitcbot
+WorkingDirectory=/opt/nitc-bot
+ExecStart=/opt/nitc-bot/.venv/bin/python -m bot.main
+Restart=always
+RestartSec=5
+# Hardening (bot only needs its own directory and network)
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/nitc-bot/data
+
+[Install]
+WantedBy=multi-user.target

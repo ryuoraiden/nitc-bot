@@ -88,6 +88,19 @@ bot/
     linking.py       /link, /verify, /unlink, /profile
 ```
 
+## Deploying (24/7 on a VPS)
+
+On a fresh Ubuntu 24.04 server (a $4/mo DigitalOcean droplet is plenty):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ryuoraiden/nitc-bot/main/deploy/setup.sh | bash
+```
+
+Then copy your `.env` (and optionally `data/bot.db`) to `/opt/nitc-bot/` and run
+`systemctl start nitc-bot`. The service auto-restarts on crash and starts on boot.
+To ship new code later: push to `main`, then run `/opt/nitc-bot/deploy/update.sh`
+on the server.
+
 ## Notes & limits
 
 - **LeetCode / CodeChef have no official APIs.** LeetCode uses the site's GraphQL
