@@ -18,6 +18,9 @@ suggestions from the server.
 - **Account linking** — `/link`, `/verify`, `/unlink` with ownership verification
   (no passwords: you place a one-time token in your platform profile).
 - **`/profile`** — show verified handles with live rating / solved counts.
+- **Study materials** — `/pyq` and `/material` search a full-text index built from
+  public Google Drive folders (past papers, notes, slides, textbooks). Admins can
+  register more folders with `/addsource`; the index refreshes daily.
 
 ## Slash commands
 
@@ -30,6 +33,12 @@ suggestions from the server.
 | `/verify <platform>` | Confirm the token you placed on your profile |
 | `/unlink <platform>` | Remove a linked handle |
 | `/profile [member]` | Show CP profiles |
+| `/leaderboard <platform>` | Rank the server's verified members |
+| `/pyq <query>` | Find past papers (midsem/endsem/quiz) |
+| `/material <query>` | Search all study materials |
+| `/sources` | List indexed Drive folders |
+| `/addsource <url>` | Add a public Drive folder to the index *(Manage Server)* |
+| `/reindex` | Re-crawl all sources *(Manage Server)* |
 
 ## Setup
 
