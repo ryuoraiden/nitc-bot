@@ -2,7 +2,7 @@
 
 /pyq       — search past papers (falls back to all materials)
 /material  — search everything (notes, slides, textbooks, papers)
-/addsource — register another public Drive folder (Manage Server)
+/addsource — register another public Drive folder (open to everyone)
 /sources   — list indexed Drive folders
 /reindex   — re-crawl all sources now (Manage Server)
 """
@@ -124,7 +124,6 @@ class Study(commands.Cog):
     # ── source management ─────────────────────────────────
     @app_commands.command(name="addsource", description="Add a public Google Drive folder to the study index.")
     @app_commands.describe(url="Link to a Drive folder shared as 'anyone with the link'")
-    @app_commands.checks.has_permissions(manage_guild=True)
     async def addsource(self, interaction: discord.Interaction, url: str):
         folder_id = drive.extract_folder_id(url)
         if not folder_id:
@@ -144,6 +143,15 @@ class Study(commands.Cog):
             f"✅ Added **{title}**. Indexing has started; files will be searchable in a minute or two.",
             ephemeral=True,
         )
+        # Announce publicly so contributions are visible (and attributable).
+        if interaction.channel:
+            try:
+                await interaction.channel.send(
+                    f"📂 {interaction.user.mention} added **[{title}]"
+                    f"(https://drive.google.com/drive/folders/{folder_id})** to the study index."
+                )
+            except discord.DiscordException:
+                pass
 
     @app_commands.command(name="sources", description="List the Drive folders in the study index.")
     async def sources(self, interaction: discord.Interaction):
@@ -175,7 +183,6 @@ class Study(commands.Cog):
         summary = "\n".join(f"• {label}: {n} files" for label, n in stats.items()) or "nothing indexed"
         await interaction.followup.send(f"✅ Reindex done:\n{summary}", ephemeral=True)
 
-    @addsource.error
     @reindex.error
     async def _perm_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.MissingPermissions):
