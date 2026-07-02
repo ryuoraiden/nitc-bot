@@ -9,6 +9,7 @@ reminders_sent  de-dup ledger so a (contest, lead-time) reminder fires once.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import aiosqlite
@@ -35,6 +36,26 @@ CREATE TABLE IF NOT EXISTS reminders_sent (
     lead_minutes INTEGER NOT NULL,
     sent_at      TEXT    NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (contest_key, lead_minutes)
+);
+
+CREATE TABLE IF NOT EXISTS drive_sources (
+    folder_id   TEXT PRIMARY KEY,
+    label       TEXT NOT NULL,
+    added_by    INTEGER,
+    added_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS drive_files (
+    file_id     TEXT PRIMARY KEY,
+    source_id   TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    mime        TEXT,
+    category    TEXT NOT NULL DEFAULT 'other'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS drive_fts USING fts5(
+    file_id UNINDEXED, name, path, category UNINDEXED
 );
 """
 
@@ -125,6 +146,72 @@ class Database:
         )
         await self.conn.commit()
         return cur.rowcount
+
+    # ── study materials (Drive index) ─────────────────────
+    async def add_drive_source(self, folder_id: str, label: str, added_by: int | None) -> None:
+        await self.conn.execute(
+            "INSERT INTO drive_sources (folder_id, label, added_by) VALUES (?, ?, ?) "
+            "ON CONFLICT(folder_id) DO UPDATE SET label = excluded.label",
+            (folder_id, label, added_by),
+        )
+        await self.conn.commit()
+
+    async def list_drive_sources(self) -> list[aiosqlite.Row]:
+        cur = await self.conn.execute(
+            "SELECT s.*, (SELECT COUNT(*) FROM drive_files f WHERE f.source_id = s.folder_id) AS n_files "
+            "FROM drive_sources s ORDER BY s.added_at"
+        )
+        return await cur.fetchall()
+
+    async def replace_drive_files(self, source_id: str, files: list[tuple]) -> None:
+        """files: (file_id, name, path, mime, category) tuples for one source."""
+        await self.conn.execute("DELETE FROM drive_files WHERE source_id = ?", (source_id,))
+        await self.conn.executemany(
+            "INSERT OR REPLACE INTO drive_files (file_id, source_id, name, path, mime, category) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [(f[0], source_id, f[1], f[2], f[3], f[4]) for f in files],
+        )
+        # Rebuild the FTS mirror (cheap at this scale, keeps it trivially in sync).
+        await self.conn.execute("DELETE FROM drive_fts")
+        await self.conn.execute(
+            "INSERT INTO drive_fts (file_id, name, path, category) "
+            "SELECT file_id, name, path, category FROM drive_files"
+        )
+        await self.conn.commit()
+
+    async def drive_file_count(self) -> int:
+        cur = await self.conn.execute("SELECT COUNT(*) AS n FROM drive_files")
+        row = await cur.fetchone()
+        return row["n"]
+
+    async def search_drive(
+        self, query: str, category: str | None = None, limit: int = 8
+    ) -> list[aiosqlite.Row]:
+        """FTS search over file name + folder path. AND first, OR fallback."""
+        tokens = re.findall(r"\w+", query)
+        if not tokens:
+            return []
+        for joiner in (" ", " OR "):
+            match = joiner.join(f"{t}*" for t in tokens)
+            sql = (
+                "SELECT f.* FROM drive_fts "
+                "JOIN drive_files f ON f.file_id = drive_fts.file_id "
+                "WHERE drive_fts MATCH ? "
+            )
+            params: list = [match]
+            if category:
+                sql += "AND f.category = ? "
+                params.append(category)
+            sql += "ORDER BY bm25(drive_fts) LIMIT ?"
+            params.append(limit)
+            try:
+                cur = await self.conn.execute(sql, params)
+                rows = await cur.fetchall()
+            except aiosqlite.OperationalError:
+                rows = []
+            if rows:
+                return rows
+        return []
 
     # ── reminders ─────────────────────────────────────────
     async def was_sent(self, contest_key: str, lead_minutes: int) -> bool:

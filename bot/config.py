@@ -36,6 +36,9 @@ class Config:
     guild_id: int | None = field(default_factory=lambda: int(os.getenv("GUILD_ID")) if os.getenv("GUILD_ID") else None)
     clist_username: str = field(default_factory=lambda: os.getenv("CLIST_USERNAME", ""))
     clist_api_key: str = field(default_factory=lambda: os.getenv("CLIST_API_KEY", ""))
+    # Optional: Google API key for complete Drive indexing (scrape fallback caps
+    # each folder listing at ~50 items).
+    google_api_key: str = field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
     reminder_lead_minutes: list[int] = field(default_factory=_lead_minutes)
     refresh_interval_minutes: int = field(default_factory=lambda: _int("REFRESH_INTERVAL_MINUTES", 30))
     db_path: str = field(default_factory=lambda: os.getenv("DB_PATH", "data/bot.db"))
