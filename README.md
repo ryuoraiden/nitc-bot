@@ -37,7 +37,7 @@ suggestions from the server.
 | `/pyq <query>` | Find past papers (midsem/endsem/quiz) |
 | `/material <query>` | Search all study materials |
 | `/sources` | List indexed Drive folders |
-| `/addsource <url>` | Add a public Drive folder to the index *(Manage Server)* |
+| `/addsource <url>` | Add a public Drive folder to the index (open to everyone) |
 | `/reindex` | Re-crawl all sources *(Manage Server)* |
 
 ## Setup
