@@ -38,6 +38,8 @@ suggestions from the server.
 | `/material <query>` | Search all study materials |
 | `/sources` | List indexed Drive folders |
 | `/addsource <url>` | Add a public Drive folder to the index (open to everyone) |
+| `/renamesource <source> <name>` | Rename a source *(Manage Server)* |
+| `/removesource <source>` | Remove a source and its files *(Manage Server)* |
 | `/reindex` | Re-crawl all sources *(Manage Server)* |
 
 ## Setup
