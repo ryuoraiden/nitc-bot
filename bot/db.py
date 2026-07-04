@@ -163,6 +163,14 @@ class Database:
         )
         return await cur.fetchall()
 
+    async def _rebuild_fts(self) -> None:
+        """Rebuild the FTS mirror (cheap at this scale, keeps it trivially in sync)."""
+        await self.conn.execute("DELETE FROM drive_fts")
+        await self.conn.execute(
+            "INSERT INTO drive_fts (file_id, name, path, category) "
+            "SELECT file_id, name, path, category FROM drive_files"
+        )
+
     async def replace_drive_files(self, source_id: str, files: list[tuple]) -> None:
         """files: (file_id, name, path, mime, category) tuples for one source."""
         await self.conn.execute("DELETE FROM drive_files WHERE source_id = ?", (source_id,))
@@ -171,13 +179,36 @@ class Database:
             "VALUES (?, ?, ?, ?, ?, ?)",
             [(f[0], source_id, f[1], f[2], f[3], f[4]) for f in files],
         )
-        # Rebuild the FTS mirror (cheap at this scale, keeps it trivially in sync).
-        await self.conn.execute("DELETE FROM drive_fts")
-        await self.conn.execute(
-            "INSERT INTO drive_fts (file_id, name, path, category) "
-            "SELECT file_id, name, path, category FROM drive_files"
-        )
+        await self._rebuild_fts()
         await self.conn.commit()
+
+    async def rename_drive_source(self, folder_id: str, new_label: str) -> None:
+        """Rename a source and rewrite its files' path prefix to match."""
+        await self.conn.execute(
+            "UPDATE drive_sources SET label = ? WHERE folder_id = ?", (new_label, folder_id)
+        )
+        cur = await self.conn.execute(
+            "SELECT path FROM drive_files WHERE source_id = ? LIMIT 1", (folder_id,)
+        )
+        row = await cur.fetchone()
+        if row:
+            old_root = row["path"].split("/")[0]
+            await self.conn.execute(
+                "UPDATE drive_files SET path = ? || substr(path, ?) "
+                "WHERE source_id = ? AND (path = ? OR path LIKE ?)",
+                (new_label, len(old_root) + 1, folder_id, old_root, f"{old_root}/%"),
+            )
+            await self._rebuild_fts()
+        await self.conn.commit()
+
+    async def remove_drive_source(self, folder_id: str) -> int:
+        await self.conn.execute("DELETE FROM drive_files WHERE source_id = ?", (folder_id,))
+        cur = await self.conn.execute(
+            "DELETE FROM drive_sources WHERE folder_id = ?", (folder_id,)
+        )
+        await self._rebuild_fts()
+        await self.conn.commit()
+        return cur.rowcount
 
     async def drive_file_count(self) -> int:
         cur = await self.conn.execute("SELECT COUNT(*) AS n FROM drive_files")

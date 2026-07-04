@@ -144,9 +144,15 @@ async def crawl(
     api_key: str | None = None,
     max_folders: int = 500,
     delay: float = 0.25,
+    root_title: str | None = None,
 ) -> tuple[str, list[DriveFile]]:
-    """Breadth-first walk of a public folder tree. Returns (root_title, files)."""
-    root_title, root_items = await _fetch_folder_page(session, root_id)
+    """Breadth-first walk of a public folder tree. Returns (root_title, files).
+
+    `root_title` overrides the folder's own name as the first path segment,
+    so a renamed source keeps its display name across re-crawls.
+    """
+    scraped_title, root_items = await _fetch_folder_page(session, root_id)
+    root_title = root_title or scraped_title
     if api_key:
         try:
             root_items = await _list_via_api(session, root_id, api_key)
