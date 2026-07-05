@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS notices_seen (
     first_seen  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS reaction_roles (
+    message_id  INTEGER NOT NULL,
+    emoji       TEXT    NOT NULL,
+    guild_id    INTEGER NOT NULL,
+    role_id     INTEGER NOT NULL,
+    PRIMARY KEY (message_id, emoji)
+);
+
 CREATE TABLE IF NOT EXISTS links (
     discord_id   INTEGER NOT NULL,
     platform     TEXT    NOT NULL,
@@ -177,6 +185,38 @@ class Database:
         )
         row = await cur.fetchone()
         return row["n"]
+
+    # ── reaction roles ────────────────────────────────────
+    async def add_reaction_role(
+        self, message_id: int, emoji: str, guild_id: int, role_id: int
+    ) -> None:
+        await self.conn.execute(
+            "INSERT OR REPLACE INTO reaction_roles (message_id, emoji, guild_id, role_id) "
+            "VALUES (?, ?, ?, ?)",
+            (message_id, emoji, guild_id, role_id),
+        )
+        await self.conn.commit()
+
+    async def get_reaction_role(self, message_id: int, emoji: str) -> int | None:
+        cur = await self.conn.execute(
+            "SELECT role_id FROM reaction_roles WHERE message_id = ? AND emoji = ?",
+            (message_id, emoji),
+        )
+        row = await cur.fetchone()
+        return row["role_id"] if row else None
+
+    async def message_has_reaction_roles(self, message_id: int) -> bool:
+        cur = await self.conn.execute(
+            "SELECT 1 FROM reaction_roles WHERE message_id = ? LIMIT 1", (message_id,)
+        )
+        return await cur.fetchone() is not None
+
+    async def clear_reaction_roles(self, message_id: int) -> int:
+        cur = await self.conn.execute(
+            "DELETE FROM reaction_roles WHERE message_id = ?", (message_id,)
+        )
+        await self.conn.commit()
+        return cur.rowcount
 
     # ── links ─────────────────────────────────────────────
     async def upsert_link(
