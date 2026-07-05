@@ -29,6 +29,7 @@ INITIAL_COGS = [
     "bot.cogs.notices",
     "bot.cogs.welcome",
     "bot.cogs.rules",
+    "bot.cogs.reaction_roles",
 ]
 
 
