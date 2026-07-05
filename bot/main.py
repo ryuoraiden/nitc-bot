@@ -27,12 +27,16 @@ INITIAL_COGS = [
     "bot.cogs.leaderboard",
     "bot.cogs.study",
     "bot.cogs.notices",
+    "bot.cogs.welcome",
 ]
 
 
 class ContestBot(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.default()  # slash commands need no privileged intents
+    def __init__(self, members_intent: bool = True):
+        intents = discord.Intents.default()
+        # Server Members is a privileged intent (dev portal -> Bot -> toggle);
+        # needed only for welcome/goodbye events.
+        intents.members = members_intent
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         self.db = Database(config.db_path)
         self.session: aiohttp.ClientSession | None = None
@@ -74,9 +78,19 @@ async def main() -> None:
         log.error("DISCORD_TOKEN is required. Copy .env.example to .env and fill it in.")
         return
 
-    bot = ContestBot()
-    async with bot:
-        await bot.start(config.discord_token)
+    try:
+        bot = ContestBot(members_intent=True)
+        async with bot:
+            await bot.start(config.discord_token)
+    except discord.PrivilegedIntentsRequired:
+        log.error(
+            "Server Members intent is not enabled in the Discord dev portal "
+            "(Bot -> Privileged Gateway Intents). Starting WITHOUT it: "
+            "welcome/goodbye messages are disabled until it's enabled and the bot restarts."
+        )
+        bot = ContestBot(members_intent=False)
+        async with bot:
+            await bot.start(config.discord_token)
 
 
 if __name__ == "__main__":

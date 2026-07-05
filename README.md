@@ -24,6 +24,9 @@ suggestions from the server.
 - **Notice watcher** — polls the official NITC notice boards (academic + general)
   every 3 hours and posts new notices (fee deadlines, scholarships, circulars) to
   a configured channel. `/notices` shows the latest on demand.
+- **Welcome & goodbye** — welcome card image (avatar + name), a start-here
+  checklist, and member-count milestones on join; a short farewell with user ID
+  on leave. Requires the Server Members privileged intent (dev portal toggle).
 
 ## Slash commands
 
@@ -46,6 +49,8 @@ suggestions from the server.
 | `/reindex` | Re-crawl all sources *(Manage Server)* |
 | `/notices [board] [limit]` | Latest notices from the NITC website |
 | `/setnoticeschannel [channel]` | Auto-post new NITC notices there *(Manage Server)* |
+| `/setwelcome [channel]` | Post welcome cards there *(Manage Server)* |
+| `/setgoodbye [channel]` | Post goodbye messages there *(Manage Server)* |
 
 ## Setup
 
