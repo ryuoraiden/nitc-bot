@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS guilds (
     guild_id           INTEGER PRIMARY KEY,
     reminder_channel   INTEGER,
     mention_role       INTEGER,
-    notices_channel    INTEGER
+    notices_channel    INTEGER,
+    welcome_channel    INTEGER,
+    goodbye_channel    INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS notices_seen (
@@ -81,10 +83,15 @@ class Database:
         await self._conn.executescript(SCHEMA)
         # Lightweight migrations for columns added after a table already exists
         # (CREATE TABLE IF NOT EXISTS won't touch existing tables).
-        try:
-            await self._conn.execute("ALTER TABLE guilds ADD COLUMN notices_channel INTEGER")
-        except aiosqlite.OperationalError:
-            pass  # column already exists
+        for ddl in (
+            "ALTER TABLE guilds ADD COLUMN notices_channel INTEGER",
+            "ALTER TABLE guilds ADD COLUMN welcome_channel INTEGER",
+            "ALTER TABLE guilds ADD COLUMN goodbye_channel INTEGER",
+        ):
+            try:
+                await self._conn.execute(ddl)
+            except aiosqlite.OperationalError:
+                pass  # column already exists
         await self._conn.commit()
 
     async def close(self) -> None:
@@ -135,6 +142,20 @@ class Database:
             "SELECT guild_id, notices_channel FROM guilds WHERE notices_channel IS NOT NULL"
         )
         return await cur.fetchall()
+
+    async def set_guild_channel(self, guild_id: int, column: str, channel_id: int | None) -> None:
+        """Set one of the guilds table's channel columns (column name is code-controlled)."""
+        assert column in {"welcome_channel", "goodbye_channel"}
+        await self.conn.execute(
+            f"INSERT INTO guilds (guild_id, {column}) VALUES (?, ?) "
+            f"ON CONFLICT(guild_id) DO UPDATE SET {column} = excluded.{column}",
+            (guild_id, channel_id),
+        )
+        await self.conn.commit()
+
+    async def get_guild(self, guild_id: int) -> aiosqlite.Row | None:
+        cur = await self.conn.execute("SELECT * FROM guilds WHERE guild_id = ?", (guild_id,))
+        return await cur.fetchone()
 
     # ── website notices ───────────────────────────────────
     async def notice_seen(self, notice_key: str) -> bool:
