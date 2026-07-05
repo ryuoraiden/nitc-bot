@@ -15,6 +15,7 @@ PANELS: dict[str, dict] = {
     "pronouns": {
         "author": "❓ What are your pronouns?",
         "color": 0x5865F2,
+        "style": "buttons",
         "sections": [
             (None, [
                 ("🔵", "He/Him", None),
@@ -25,6 +26,7 @@ PANELS: dict[str, dict] = {
     "interests": {
         "author": "⭐ What are your interests?",
         "color": 0xF1C40F,
+        "style": "buttons",
         "sections": [
             (None, [
                 ("🎤", "Music", None),
@@ -39,6 +41,7 @@ PANELS: dict[str, dict] = {
     "notifications": {
         "author": "📢 What do you want notifications for?",
         "color": 0xE67E22,
+        "style": "buttons",
         "sections": [
             (None, [
                 ("📰", "Updates Ping", "Important server/campus updates, used sparingly"),
@@ -52,6 +55,8 @@ PANELS: dict[str, dict] = {
     "clubs": {
         "author": "🏛️ Official Club & Student Body Membership Roles",
         "color": 0x2ECC71,
+        "style": "select",
+        "placeholder": "Select your clubs, bodies, and teams",
         "intro": (
             "If you are an officially affiliated member of any NITC club, student body, "
             "service organization, or fest team, you may assign your role below.\n\n"

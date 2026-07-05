@@ -1,10 +1,13 @@
-"""Reaction roles (replaces Carl Bot's reaction-role panels).
+"""Self-role panels using buttons and dropdowns (upgrade from reaction roles).
 
-/postpanel <panel> [channel] — post a self-role panel and wire its reactions
-/clearpanel <message_id>      — stop tracking a panel message
+Components are persistent via discord.py DynamicItem: the role id is encoded in
+each component's custom_id, so buttons and dropdowns keep working across bot
+restarts with no per-message state to store or re-register.
+
+/postpanel <panel> [channel] — post a self-role panel (Manage Server)
 
 Needs the Manage Roles permission and the bot's top role above every role it
-hands out. Reaction events are non-privileged (included in default intents).
+hands out.
 """
 from __future__ import annotations
 
@@ -22,17 +25,17 @@ log = logging.getLogger(__name__)
 _PANEL_CHOICES = [app_commands.Choice(name=key.title(), value=key) for key in PANELS]
 
 
-def _norm_emoji(e: str) -> str:
-    """Drop the variation selector (U+FE0F) so add/remove events compare equal."""
-    return e.replace(chr(0xFE0F), "")
+def _display_role_name(name: str) -> str:
+    """'🎤 ǀ · Music Club' -> 'Music Club'. Keeps original case (acronyms intact)."""
+    if "·" in name:
+        name = name.rsplit("·", 1)[-1]
+    name = re.sub(r"[^0-9A-Za-z /&]+", " ", name)
+    return re.sub(r"\s+", " ", name).strip()
 
 
 def _clean_role_name(name: str) -> str:
-    """'🎤 ǀ · Music Club' -> 'music club'. Used to match roles by query."""
-    if "·" in name:
-        name = name.rsplit("·", 1)[-1]
-    name = re.sub(r"[^0-9A-Za-z /]+", " ", name)
-    return re.sub(r"\s+", " ", name).strip().lower()
+    """Lowercased display name, used only to match roles by query."""
+    return _display_role_name(name).lower()
 
 
 def _find_role(guild: discord.Guild, query: str) -> discord.Role | None:
@@ -49,6 +52,93 @@ def _iter_entries(panel: dict):
             yield emoji, role_query, desc
 
 
+async def _toggle_role(member: discord.Member, role: discord.Role) -> str | None:
+    """Add or remove a role. Returns 'added'/'removed', or None on permission failure."""
+    try:
+        if role in member.roles:
+            await member.remove_roles(role, reason="Self-role")
+            return "removed"
+        await member.add_roles(role, reason="Self-role")
+        return "added"
+    except discord.Forbidden:
+        return None
+
+
+# ── persistent components ─────────────────────────────────
+
+class RoleButton(discord.ui.DynamicItem[discord.ui.Button], template=r"rr:btn:(?P<rid>[0-9]+)"):
+    def __init__(self, role_id: int, *, label: str = "role", emoji: str | None = None):
+        super().__init__(
+            discord.ui.Button(
+                style=discord.ButtonStyle.secondary,
+                label=label[:80],
+                emoji=emoji,
+                custom_id=f"rr:btn:{role_id}",
+            )
+        )
+        self.role_id = role_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match, /):
+        return cls(int(match["rid"]))
+
+    async def callback(self, interaction: discord.Interaction):
+        role = interaction.guild.get_role(self.role_id)
+        if role is None:
+            await interaction.response.send_message("That role no longer exists.", ephemeral=True)
+            return
+        result = await _toggle_role(interaction.user, role)
+        if result is None:
+            await interaction.response.send_message(
+                "I can't manage that role. An admin needs to move my role above it "
+                "and give me Manage Roles.", ephemeral=True
+            )
+            return
+        verb = "Added" if result == "added" else "Removed"
+        await interaction.response.send_message(f"{verb} {role.mention}.", ephemeral=True)
+
+
+class RoleSelect(discord.ui.DynamicItem[discord.ui.Select], template=r"rr:sel"):
+    def __init__(self, options: list[discord.SelectOption] | None = None, placeholder: str = "Select roles"):
+        opts = options or [discord.SelectOption(label="placeholder", value="0")]
+        super().__init__(
+            discord.ui.Select(
+                custom_id="rr:sel",
+                placeholder=placeholder,
+                min_values=0,
+                max_values=len(opts),
+                options=opts,
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match, /):
+        return cls()
+
+    async def callback(self, interaction: discord.Interaction):
+        values = interaction.data.get("values", [])
+        if not values:
+            await interaction.response.send_message("No changes made.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        added, removed, failed = [], [], []
+        for rid in values:
+            role = interaction.guild.get_role(int(rid))
+            if role is None:
+                continue
+            result = await _toggle_role(interaction.user, role)
+            (added if result == "added" else removed if result == "removed" else failed).append(role)
+        parts = []
+        if added:
+            parts.append("➕ " + ", ".join(r.mention for r in added))
+        if removed:
+            parts.append("➖ " + ", ".join(r.mention for r in removed))
+        if failed:
+            parts.append("⚠️ Couldn't manage: " + ", ".join(r.name for r in failed)
+                         + " (my role needs to be above them).")
+        await interaction.followup.send("\n".join(parts) or "No changes made.", ephemeral=True)
+
+
 def _build_embed(panel: dict, resolved: dict[str, discord.Role]) -> discord.Embed:
     parts: list[str] = []
     if panel.get("intro"):
@@ -60,61 +150,52 @@ def _build_embed(panel: dict, resolved: dict[str, discord.Role]) -> discord.Embe
         for emoji, role_query, desc in entries:
             role = resolved.get(role_query)
             mention = role.mention if role else f"`{role_query}` (missing)"
-            block.append(f"{emoji} → {mention}")
+            line = f"{emoji} {mention}"
             if desc:
-                block.append(f"• {desc}")
+                line += f" — {desc}"
+            block.append(line)
         parts.append("\n".join(block))
     embed = discord.Embed(description="\n\n".join(parts), color=panel.get("color", 0x5865F2))
     embed.set_author(name=panel["author"])
     return embed
 
 
+def _build_view(panel: dict, resolved: dict[str, discord.Role]) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    if panel.get("style") == "select":
+        options: list[discord.SelectOption] = []
+        for heading, entries in panel["sections"]:
+            category = re.sub(r"^\W+", "", heading).strip() if heading else None
+            for emoji, role_query, _ in entries:
+                role = resolved.get(role_query)
+                if role is None:
+                    continue
+                options.append(discord.SelectOption(
+                    label=_display_role_name(role.name)[:100],
+                    value=str(role.id),
+                    emoji=emoji,
+                    description=(category[:100] if category else None),
+                ))
+        if options:
+            view.add_item(RoleSelect(options, placeholder=panel.get("placeholder", "Select roles")))
+    else:
+        for emoji, role_query, _ in _iter_entries(panel):
+            role = resolved.get(role_query)
+            if role is None:
+                continue
+            view.add_item(RoleButton(role.id, label=_display_role_name(role.name), emoji=emoji))
+    return view
+
+
 class ReactionRoles(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ── reaction listeners ────────────────────────────────
-    async def _apply(self, payload: discord.RawReactionActionEvent, add: bool) -> None:
-        if payload.guild_id is None or payload.user_id == self.bot.user.id:
-            return
-        emoji = _norm_emoji(str(payload.emoji))
-        role_id = await self.bot.db.get_reaction_role(payload.message_id, emoji)
-        if role_id is None:
-            return
-        guild = self.bot.get_guild(payload.guild_id)
-        if guild is None:
-            return
-        role = guild.get_role(role_id)
-        if role is None:
-            return
-        member = payload.member or guild.get_member(payload.user_id)
-        if member is None:
-            try:
-                member = await guild.fetch_member(payload.user_id)
-            except discord.HTTPException:
-                return
-        if member.bot:
-            return
-        try:
-            if add:
-                await member.add_roles(role, reason="Reaction role")
-            else:
-                await member.remove_roles(role, reason="Reaction role removed")
-        except discord.Forbidden:
-            log.warning("Missing permission/hierarchy to toggle role %s for %s", role.name, member)
-        except discord.HTTPException as e:
-            log.warning("Reaction role update failed: %s", e)
+    async def cog_load(self) -> None:
+        # Register the dynamic components so their callbacks fire after restarts.
+        self.bot.add_dynamic_items(RoleButton, RoleSelect)
 
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        await self._apply(payload, add=True)
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
-        await self._apply(payload, add=False)
-
-    # ── commands ──────────────────────────────────────────
-    @app_commands.command(name="postpanel", description="Post a self-role reaction panel.")
+    @app_commands.command(name="postpanel", description="Post a self-role panel (buttons or dropdown).")
     @app_commands.describe(panel="Which panel", channel="Where to post (defaults to here)")
     @app_commands.choices(panel=_PANEL_CHOICES)
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -128,7 +209,6 @@ class ReactionRoles(commands.Cog):
         spec = PANELS[panel.value]
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        # Resolve roles up front so we can report anything missing.
         resolved: dict[str, discord.Role] = {}
         missing: list[str] = []
         too_high: list[str] = []
@@ -143,7 +223,7 @@ class ReactionRoles(commands.Cog):
                     too_high.append(role.name)
 
         try:
-            msg = await target.send(embed=_build_embed(spec, resolved))
+            await target.send(embed=_build_embed(spec, resolved), view=_build_view(spec, resolved))
         except discord.Forbidden:
             await interaction.followup.send(
                 f"I can't post in {target.mention} (need View Channel + Send Messages + Embed Links).",
@@ -151,50 +231,17 @@ class ReactionRoles(commands.Cog):
             )
             return
 
-        # Add reactions + store mappings only for resolved roles.
-        bound = 0
-        for emoji, role_query, _ in _iter_entries(spec):
-            role = resolved.get(role_query)
-            if role is None:
-                continue
-            try:
-                await msg.add_reaction(emoji)
-            except discord.HTTPException as e:
-                log.warning("Couldn't add reaction %s: %s", emoji, e)
-                continue
-            await self.bot.db.add_reaction_role(msg.id, _norm_emoji(emoji), interaction.guild_id, role.id)
-            bound += 1
-
-        # Build the admin summary.
-        report = [f"✅ Posted **{panel.name}** in {target.mention} · **{bound}** roles wired."]
+        report = [f"✅ Posted **{panel.name}** in {target.mention} · **{len(resolved)}** roles wired."]
         if not interaction.guild.me.guild_permissions.manage_roles:
-            report.append("⚠️ I don't have **Manage Roles**, so reactions won't assign anything until you grant it.")
+            report.append("⚠️ I don't have **Manage Roles**, so nothing will assign until you grant it.")
         if too_high:
-            report.append("⚠️ These roles are above my top role and won't assign until I'm moved up: "
-                          + ", ".join(too_high))
+            report.append("⚠️ Above my top role (won't assign until I'm moved up): " + ", ".join(too_high))
         if missing:
             report.append("⚠️ Couldn't find roles named: " + ", ".join(f"`{m}`" for m in missing)
                           + " (rename them to match, or tell me the exact names).")
-        report.append(f"Message ID: `{msg.id}` (use with `/clearpanel` to untrack).")
         await interaction.followup.send("\n".join(report), ephemeral=True)
 
-    @app_commands.command(name="clearpanel", description="Stop tracking a reaction-role message.")
-    @app_commands.describe(message_id="The panel message's ID")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def clearpanel(self, interaction: discord.Interaction, message_id: str):
-        if not message_id.isdigit():
-            await interaction.response.send_message("That's not a valid message ID.", ephemeral=True)
-            return
-        removed = await self.bot.db.clear_reaction_roles(int(message_id))
-        msg = (
-            f"🗑️ Stopped tracking {removed} reaction-role mapping(s)."
-            if removed
-            else "That message has no tracked reaction roles."
-        )
-        await interaction.response.send_message(msg, ephemeral=True)
-
     @postpanel.error
-    @clearpanel.error
     async def _perm_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.MissingPermissions):
             await interaction.response.send_message(
