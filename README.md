@@ -19,8 +19,11 @@ suggestions from the server.
   (no passwords: you place a one-time token in your platform profile).
 - **`/profile`** — show verified handles with live rating / solved counts.
 - **Study materials** — `/pyq` and `/material` search a full-text index built from
-  public Google Drive folders (past papers, notes, slides, textbooks). Admins can
+  public Google Drive folders (past papers, notes, slides, textbooks). Anyone can
   register more folders with `/addsource`; the index refreshes daily.
+- **Notice watcher** — polls the official NITC notice boards (academic + general)
+  every 3 hours and posts new notices (fee deadlines, scholarships, circulars) to
+  a configured channel. `/notices` shows the latest on demand.
 
 ## Slash commands
 
@@ -41,6 +44,8 @@ suggestions from the server.
 | `/renamesource <source> <name>` | Rename a source *(Manage Server)* |
 | `/removesource <source>` | Remove a source and its files *(Manage Server)* |
 | `/reindex` | Re-crawl all sources *(Manage Server)* |
+| `/notices [board] [limit]` | Latest notices from the NITC website |
+| `/setnoticeschannel [channel]` | Auto-post new NITC notices there *(Manage Server)* |
 
 ## Setup
 

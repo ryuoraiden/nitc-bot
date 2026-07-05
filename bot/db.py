@@ -18,7 +18,16 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS guilds (
     guild_id           INTEGER PRIMARY KEY,
     reminder_channel   INTEGER,
-    mention_role       INTEGER
+    mention_role       INTEGER,
+    notices_channel    INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS notices_seen (
+    notice_key  TEXT PRIMARY KEY,
+    board       TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    url         TEXT NOT NULL,
+    first_seen  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS links (
@@ -70,6 +79,12 @@ class Database:
         self._conn = await aiosqlite.connect(self.path)
         self._conn.row_factory = aiosqlite.Row
         await self._conn.executescript(SCHEMA)
+        # Lightweight migrations for columns added after a table already exists
+        # (CREATE TABLE IF NOT EXISTS won't touch existing tables).
+        try:
+            await self._conn.execute("ALTER TABLE guilds ADD COLUMN notices_channel INTEGER")
+        except aiosqlite.OperationalError:
+            pass  # column already exists
         await self._conn.commit()
 
     async def close(self) -> None:
@@ -106,6 +121,41 @@ class Database:
             "WHERE reminder_channel IS NOT NULL"
         )
         return await cur.fetchall()
+
+    async def set_notices_channel(self, guild_id: int, channel_id: int) -> None:
+        await self.conn.execute(
+            "INSERT INTO guilds (guild_id, notices_channel) VALUES (?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET notices_channel = excluded.notices_channel",
+            (guild_id, channel_id),
+        )
+        await self.conn.commit()
+
+    async def all_notice_targets(self) -> list[aiosqlite.Row]:
+        cur = await self.conn.execute(
+            "SELECT guild_id, notices_channel FROM guilds WHERE notices_channel IS NOT NULL"
+        )
+        return await cur.fetchall()
+
+    # ── website notices ───────────────────────────────────
+    async def notice_seen(self, notice_key: str) -> bool:
+        cur = await self.conn.execute(
+            "SELECT 1 FROM notices_seen WHERE notice_key = ?", (notice_key,)
+        )
+        return await cur.fetchone() is not None
+
+    async def mark_notice_seen(self, notice_key: str, board: str, title: str, url: str) -> None:
+        await self.conn.execute(
+            "INSERT OR IGNORE INTO notices_seen (notice_key, board, title, url) VALUES (?, ?, ?, ?)",
+            (notice_key, board, title, url),
+        )
+        await self.conn.commit()
+
+    async def notices_seen_count(self, board: str) -> int:
+        cur = await self.conn.execute(
+            "SELECT COUNT(*) AS n FROM notices_seen WHERE board = ?", (board,)
+        )
+        row = await cur.fetchone()
+        return row["n"]
 
     # ── links ─────────────────────────────────────────────
     async def upsert_link(

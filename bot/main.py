@@ -21,7 +21,13 @@ logging.basicConfig(
 )
 log = logging.getLogger("bot")
 
-INITIAL_COGS = ["bot.cogs.contests", "bot.cogs.linking", "bot.cogs.leaderboard", "bot.cogs.study"]
+INITIAL_COGS = [
+    "bot.cogs.contests",
+    "bot.cogs.linking",
+    "bot.cogs.leaderboard",
+    "bot.cogs.study",
+    "bot.cogs.notices",
+]
 
 
 class ContestBot(commands.Bot):
