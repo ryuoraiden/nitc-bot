@@ -52,8 +52,7 @@ suggestions from the server.
 | `/setwelcome [channel]` | Post welcome cards there *(Manage Server)* |
 | `/setgoodbye [channel]` | Post goodbye messages there *(Manage Server)* |
 | `/postrules [channel]` | Post the server rules embed *(Manage Server)* |
-| `/postpanel <panel> [channel]` | Post a self-role reaction panel *(Manage Server)* |
-| `/clearpanel <message_id>` | Stop tracking a reaction panel *(Manage Server)* |
+| `/postpanel <panel> [channel]` | Post a self-role panel (buttons/dropdown) *(Manage Server)* |
 
 ## Setup
 
