@@ -28,6 +28,9 @@ _FONT_PATHS = [
 CARD_W, CARD_H = 1000, 560
 _AVATAR = 260
 
+# Channel where /pyq is pointed in the welcome checklist (NITC study-materials channel).
+PYQ_CHANNEL_ID = 1411342416170057738
+
 
 def _ordinal(n: int) -> str:
     if 10 <= n % 100 <= 20:
@@ -52,7 +55,9 @@ def _render_card(avatar_png: bytes, username: str) -> bytes:
     """Dark card: circular avatar on top, WELCOME headline, username under it."""
     from PIL import Image, ImageDraw, ImageOps
 
-    card = Image.new("RGBA", (CARD_W, CARD_H), (35, 39, 42, 255))
+    # Transparent background so the card blends into Discord's message area
+    # (matches Maki) instead of sitting in a visible grey box.
+    card = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(card)
 
     # Circular avatar with a subtle ring, centered horizontally.
@@ -79,7 +84,7 @@ def _render_card(avatar_png: bytes, username: str) -> bytes:
     draw.text(((CARD_W - nw) / 2, ay + _AVATAR + 175), name, font=name_font, fill=(220, 220, 220, 255))
 
     out = io.BytesIO()
-    card.convert("RGB").save(out, format="PNG")
+    card.save(out, format="PNG")  # keep alpha channel for transparency
     return out.getvalue()
 
 
@@ -117,7 +122,7 @@ class Welcome(commands.Cog):
         ]:
             if ch:
                 lines.append(f"- {emoji} {verb} {ch.mention}")
-        lines.append("- 📝 Need past papers? Try **/pyq** right here")
+        lines.append(f"- 📝 Need past papers? Try **/pyq** in <#{PYQ_CHANNEL_ID}>")
         lines.append("")
         lines.append(f"You are the **{_ordinal(member.guild.member_count)} member** of our community!")
 
