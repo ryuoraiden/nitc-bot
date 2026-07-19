@@ -24,6 +24,9 @@ suggestions from the server.
 - **Notice watcher** — polls the official NITC notice boards (academic + general)
   every 3 hours and posts new notices (fee deadlines, scholarships, circulars) to
   a configured channel. `/notices` shows the latest on demand.
+- **High-signal bulletin** — tags notice titles as deadlines, workshops,
+  placements, or admin updates. `/bulletin` filters the useful items, and servers
+  can choose immediate posts, a morning daily digest, or both.
 - **Welcome & goodbye** — welcome card image (avatar + name), a start-here
   checklist, and member-count milestones on join; a short farewell with user ID
   on leave. Requires the Server Members privileged intent (dev portal toggle).
@@ -48,7 +51,8 @@ suggestions from the server.
 | `/removesource <source>` | Remove a source and its files *(Manage Server)* |
 | `/reindex` | Re-crawl all sources *(Manage Server)* |
 | `/notices [board] [limit]` | Latest notices from the NITC website |
-| `/setnoticeschannel [channel]` | Auto-post new NITC notices there *(Manage Server)* |
+| `/bulletin [category] [urgent_only] [limit]` | Tagged, urgency-ranked student notices |
+| `/setnoticeschannel [channel] [delivery]` | Configure immediate notices and/or daily digest *(Manage Server)* |
 | `/setwelcome [channel]` | Post welcome cards there *(Manage Server)* |
 | `/setgoodbye [channel]` | Post goodbye messages there *(Manage Server)* |
 | `/postrules [channel]` | Post the server rules embed *(Manage Server)* |
@@ -83,6 +87,18 @@ suggestions from the server.
 On first run the bot syncs its slash commands globally (can take a minute to appear).
 In your server, run `/setchannel` to pick where reminders go.
 
+For NITC updates, `/setnoticeschannel` accepts three delivery modes:
+`immediate`, `daily_digest`, and `both`. Existing installations remain on
+immediate delivery. The digest defaults to 08:00 Asia/Kolkata and can be changed
+with `BULLETIN_DIGEST_HOUR` and `BULLETIN_TIMEZONE` in `.env`. Enabling a digest
+starts with notices discovered afterward, so the first digest does not replay
+the bot's entire notice history. Notices that match no category still appear in
+the digest under "Other", so digest-only servers never miss one.
+
+Bulletin tags are deterministic keyword matches against notice titles. Always
+open the linked PDF for authoritative dates and eligibility details; the bot
+does not download or interpret the PDF contents.
+
 ## Project layout
 
 ```
@@ -90,6 +106,7 @@ bot/
   main.py            entrypoint + bot lifecycle
   config.py          env/.env configuration
   db.py              SQLite (aiosqlite) persistence
+  bulletins.py       notice classification rules and bulletin metadata
   services.py        contest fetching (clist + CF fallback, de-dup)
   platforms/
     base.py          Contest / PlatformUser models
@@ -99,6 +116,7 @@ bot/
     registry.py      platform lookup/verify registry
   cogs/
     contests.py      /contests, /setchannel, /setrole + reminder scheduler
+    notices.py       notice watcher, /bulletin, and daily digest scheduler
     linking.py       /link, /verify, /unlink, /profile
 ```
 
