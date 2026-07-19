@@ -41,6 +41,12 @@ class Config:
     google_api_key: str = field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
     reminder_lead_minutes: list[int] = field(default_factory=_lead_minutes)
     refresh_interval_minutes: int = field(default_factory=lambda: _int("REFRESH_INTERVAL_MINUTES", 30))
+    bulletin_digest_hour: int = field(
+        default_factory=lambda: max(0, min(_int("BULLETIN_DIGEST_HOUR", 8), 23))
+    )
+    bulletin_timezone: str = field(
+        default_factory=lambda: os.getenv("BULLETIN_TIMEZONE", "Asia/Kolkata")
+    )
     db_path: str = field(default_factory=lambda: os.getenv("DB_PATH", "data/bot.db"))
 
     @property

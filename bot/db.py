@@ -5,6 +5,8 @@ Tables
 guilds          one row per Discord server: which channel gets reminders.
 links           discord_id <-> platform handle mappings (verified or pending).
 reminders_sent  de-dup ledger so a (contest, lead-time) reminder fires once.
+notices_seen    fetched NITC notices and their bulletin priority.
+notice_tags     many-to-many bulletin tags for stored notices.
 """
 from __future__ import annotations
 
@@ -14,12 +16,16 @@ from pathlib import Path
 
 import aiosqlite
 
+from .bulletins import CLASSIFICATION_VERSION, URGENT_PRIORITY, Classification, classify_notice
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS guilds (
     guild_id           INTEGER PRIMARY KEY,
     reminder_channel   INTEGER,
     mention_role       INTEGER,
     notices_channel    INTEGER,
+    notice_delivery    TEXT NOT NULL DEFAULT 'immediate',
+    digest_enabled_at  TEXT,
     welcome_channel    INTEGER,
     goodbye_channel    INTEGER
 );
@@ -29,8 +35,27 @@ CREATE TABLE IF NOT EXISTS notices_seen (
     board       TEXT NOT NULL,
     title       TEXT NOT NULL,
     url         TEXT NOT NULL,
-    first_seen  TEXT NOT NULL DEFAULT (datetime('now'))
+    first_seen             TEXT NOT NULL DEFAULT (datetime('now')),
+    bulletin_priority      INTEGER NOT NULL DEFAULT 0,
+    classification_version INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS notice_tags (
+    notice_key  TEXT NOT NULL,
+    tag         TEXT NOT NULL,
+    PRIMARY KEY (notice_key, tag)
+);
+
+CREATE TABLE IF NOT EXISTS bulletin_deliveries (
+    guild_id    INTEGER NOT NULL,
+    notice_key  TEXT NOT NULL,
+    format      TEXT NOT NULL,
+    delivered_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (guild_id, notice_key, format)
+);
+
+CREATE INDEX IF NOT EXISTS idx_notice_tags_tag_notice
+    ON notice_tags(tag, notice_key);
 
 CREATE TABLE IF NOT EXISTS reaction_roles (
     message_id  INTEGER NOT NULL,
@@ -95,11 +120,20 @@ class Database:
             "ALTER TABLE guilds ADD COLUMN notices_channel INTEGER",
             "ALTER TABLE guilds ADD COLUMN welcome_channel INTEGER",
             "ALTER TABLE guilds ADD COLUMN goodbye_channel INTEGER",
+            "ALTER TABLE guilds ADD COLUMN notice_delivery TEXT NOT NULL DEFAULT 'immediate'",
+            "ALTER TABLE guilds ADD COLUMN digest_enabled_at TEXT",
+            "ALTER TABLE notices_seen ADD COLUMN bulletin_priority INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE notices_seen ADD COLUMN classification_version INTEGER NOT NULL DEFAULT 0",
         ):
             try:
                 await self._conn.execute(ddl)
             except aiosqlite.OperationalError:
                 pass  # column already exists
+        await self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_notices_seen_priority_time "
+            "ON notices_seen(bulletin_priority DESC, first_seen DESC)"
+        )
+        await self._backfill_notice_classifications()
         await self._conn.commit()
 
     async def close(self) -> None:
@@ -137,17 +171,51 @@ class Database:
         )
         return await cur.fetchall()
 
-    async def set_notices_channel(self, guild_id: int, channel_id: int) -> None:
-        await self.conn.execute(
-            "INSERT INTO guilds (guild_id, notices_channel) VALUES (?, ?) "
-            "ON CONFLICT(guild_id) DO UPDATE SET notices_channel = excluded.notices_channel",
-            (guild_id, channel_id),
+    async def set_notices_channel(
+        self, guild_id: int, channel_id: int, delivery: str = "immediate"
+    ) -> None:
+        if delivery not in {"immediate", "daily_digest", "both"}:
+            raise ValueError(f"Unsupported notice delivery mode: {delivery}")
+        current = await self.get_guild(guild_id)
+        was_digest = bool(
+            current and current["notice_delivery"] in {"daily_digest", "both"}
         )
+        digest_at = current["digest_enabled_at"] if current and was_digest else None
+        await self.conn.execute(
+            "INSERT INTO guilds "
+            "(guild_id, notices_channel, notice_delivery, digest_enabled_at) "
+            "VALUES (?, ?, ?, CASE WHEN ? IN ('daily_digest', 'both') THEN datetime('now') END) "
+            "ON CONFLICT(guild_id) DO UPDATE SET "
+            "notices_channel = excluded.notices_channel, "
+            "notice_delivery = excluded.notice_delivery, "
+            "digest_enabled_at = CASE "
+            "  WHEN excluded.notice_delivery NOT IN ('daily_digest', 'both') THEN NULL "
+            "  ELSE COALESCE(?, excluded.digest_enabled_at) END",
+            (guild_id, channel_id, delivery, delivery, digest_at),
+        )
+        if delivery in {"daily_digest", "both"} and not was_digest:
+            # Enabling a digest starts from now: classify history for /bulletin,
+            # but do not dump that history into the first scheduled digest.
+            await self.conn.execute(
+                "INSERT OR IGNORE INTO bulletin_deliveries (guild_id, notice_key, format) "
+                "SELECT ?, notice_key, 'digest' FROM notices_seen",
+                (guild_id,),
+            )
         await self.conn.commit()
 
     async def all_notice_targets(self) -> list[aiosqlite.Row]:
         cur = await self.conn.execute(
-            "SELECT guild_id, notices_channel FROM guilds WHERE notices_channel IS NOT NULL"
+            "SELECT guild_id, notices_channel FROM guilds "
+            "WHERE notices_channel IS NOT NULL AND notice_delivery IN ('immediate', 'both')"
+        )
+        return await cur.fetchall()
+
+    async def all_digest_targets(self) -> list[aiosqlite.Row]:
+        cur = await self.conn.execute(
+            "SELECT guild_id, notices_channel, digest_enabled_at FROM guilds "
+            "WHERE notices_channel IS NOT NULL "
+            "AND notice_delivery IN ('daily_digest', 'both') "
+            "AND digest_enabled_at IS NOT NULL"
         )
         return await cur.fetchall()
 
@@ -172,10 +240,24 @@ class Database:
         )
         return await cur.fetchone() is not None
 
-    async def mark_notice_seen(self, notice_key: str, board: str, title: str, url: str) -> None:
+    async def mark_notice_seen(
+        self,
+        notice_key: str,
+        board: str,
+        title: str,
+        url: str,
+        classification: Classification | None = None,
+    ) -> None:
+        classification = classification or classify_notice(title)
         await self.conn.execute(
-            "INSERT OR IGNORE INTO notices_seen (notice_key, board, title, url) VALUES (?, ?, ?, ?)",
-            (notice_key, board, title, url),
+            "INSERT OR IGNORE INTO notices_seen "
+            "(notice_key, board, title, url, bulletin_priority, classification_version) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (notice_key, board, title, url, classification.priority, classification.version),
+        )
+        await self.conn.executemany(
+            "INSERT OR IGNORE INTO notice_tags (notice_key, tag) VALUES (?, ?)",
+            [(notice_key, tag) for tag in classification.tags],
         )
         await self.conn.commit()
 
@@ -185,6 +267,74 @@ class Database:
         )
         row = await cur.fetchone()
         return row["n"]
+
+    async def _backfill_notice_classifications(self) -> None:
+        cur = await self.conn.execute(
+            "SELECT notice_key, title FROM notices_seen WHERE classification_version < ?",
+            (CLASSIFICATION_VERSION,),
+        )
+        for row in await cur.fetchall():
+            classification = classify_notice(row["title"])
+            await self.conn.execute(
+                "DELETE FROM notice_tags WHERE notice_key = ?", (row["notice_key"],)
+            )
+            await self.conn.executemany(
+                "INSERT INTO notice_tags (notice_key, tag) VALUES (?, ?)",
+                [(row["notice_key"], tag) for tag in classification.tags],
+            )
+            await self.conn.execute(
+                "UPDATE notices_seen SET bulletin_priority = ?, classification_version = ? "
+                "WHERE notice_key = ?",
+                (classification.priority, classification.version, row["notice_key"]),
+            )
+
+    async def bulletin_notices(
+        self, category: str | None = None, urgent_only: bool = False, limit: int = 8
+    ) -> list[aiosqlite.Row]:
+        sql = (
+            "SELECT n.*, group_concat(t.tag) AS tags FROM notices_seen n "
+            "JOIN notice_tags t ON t.notice_key = n.notice_key WHERE 1 = 1 "
+        )
+        params: list[object] = []
+        if category:
+            sql += (
+                "AND EXISTS (SELECT 1 FROM notice_tags f "
+                "WHERE f.notice_key = n.notice_key AND f.tag = ?) "
+            )
+            params.append(category)
+        if urgent_only:
+            sql += "AND n.bulletin_priority >= ? "
+            params.append(URGENT_PRIORITY)
+        sql += "GROUP BY n.notice_key ORDER BY n.bulletin_priority DESC, n.first_seen DESC LIMIT ?"
+        params.append(limit)
+        cur = await self.conn.execute(sql, params)
+        return await cur.fetchall()
+
+    async def pending_digest_notices(
+        self, guild_id: int, limit: int = 15
+    ) -> list[aiosqlite.Row]:
+        # LEFT JOIN: notices whose title matches no category still reach the
+        # digest (under "Other") — digest-only guilds must not silently lose them.
+        cur = await self.conn.execute(
+            "SELECT n.*, group_concat(t.tag) AS tags FROM notices_seen n "
+            "LEFT JOIN notice_tags t ON t.notice_key = n.notice_key "
+            "JOIN guilds g ON g.guild_id = ? "
+            "WHERE n.first_seen >= g.digest_enabled_at "
+            "AND NOT EXISTS (SELECT 1 FROM bulletin_deliveries d "
+            "  WHERE d.guild_id = g.guild_id AND d.notice_key = n.notice_key "
+            "  AND d.format = 'digest') "
+            "GROUP BY n.notice_key ORDER BY n.bulletin_priority DESC, n.first_seen ASC LIMIT ?",
+            (guild_id, limit),
+        )
+        return await cur.fetchall()
+
+    async def mark_digest_delivered(self, guild_id: int, notice_keys: list[str]) -> None:
+        await self.conn.executemany(
+            "INSERT OR IGNORE INTO bulletin_deliveries (guild_id, notice_key, format) "
+            "VALUES (?, ?, 'digest')",
+            [(guild_id, key) for key in notice_keys],
+        )
+        await self.conn.commit()
 
     # ── reaction roles ────────────────────────────────────
     async def add_reaction_role(
