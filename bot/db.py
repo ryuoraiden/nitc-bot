@@ -3,6 +3,7 @@
 Tables
 ------
 guilds          one row per Discord server: which channel gets reminders.
+sticky_messages one persistent sticky configuration per Discord channel.
 links           discord_id <-> platform handle mappings (verified or pending).
 reminders_sent  de-dup ledger so a (contest, lead-time) reminder fires once.
 notices_seen    fetched NITC notices and their bulletin priority.
@@ -64,6 +65,25 @@ CREATE TABLE IF NOT EXISTS reaction_roles (
     role_id     INTEGER NOT NULL,
     PRIMARY KEY (message_id, emoji)
 );
+
+CREATE TABLE IF NOT EXISTS sticky_messages (
+    channel_id       INTEGER PRIMARY KEY,
+    guild_id         INTEGER NOT NULL,
+    content          TEXT NOT NULL,
+    style            TEXT NOT NULL DEFAULT 'plain',
+    image_url        TEXT,
+    active           INTEGER NOT NULL DEFAULT 1,
+    every_messages   INTEGER NOT NULL DEFAULT 5,
+    after_seconds    INTEGER NOT NULL DEFAULT 15,
+    message_count    INTEGER NOT NULL DEFAULT 0,
+    last_message_id  INTEGER,
+    last_posted_at   REAL NOT NULL,
+    created_by       INTEGER NOT NULL,
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sticky_messages_guild
+    ON sticky_messages(guild_id, active);
 
 CREATE TABLE IF NOT EXISTS links (
     discord_id   INTEGER NOT NULL,
@@ -364,6 +384,110 @@ class Database:
     async def clear_reaction_roles(self, message_id: int) -> int:
         cur = await self.conn.execute(
             "DELETE FROM reaction_roles WHERE message_id = ?", (message_id,)
+        )
+        await self.conn.commit()
+        return cur.rowcount
+
+    # ── sticky messages ───────────────────────────────────────
+    async def upsert_sticky(
+        self,
+        *,
+        guild_id: int,
+        channel_id: int,
+        content: str,
+        style: str,
+        image_url: str | None,
+        every_messages: int,
+        after_seconds: int,
+        last_message_id: int,
+        last_posted_at: float,
+        created_by: int,
+    ) -> None:
+        await self.conn.execute(
+            "INSERT INTO sticky_messages "
+            "(guild_id, channel_id, content, style, image_url, every_messages, "
+            "after_seconds, last_message_id, last_posted_at, created_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(channel_id) DO UPDATE SET "
+            "guild_id = excluded.guild_id, content = excluded.content, "
+            "style = excluded.style, image_url = excluded.image_url, active = 1, "
+            "every_messages = excluded.every_messages, after_seconds = excluded.after_seconds, "
+            "message_count = 0, last_message_id = excluded.last_message_id, "
+            "last_posted_at = excluded.last_posted_at, created_by = excluded.created_by, "
+            "updated_at = datetime('now')",
+            (
+                guild_id,
+                channel_id,
+                content,
+                style,
+                image_url,
+                every_messages,
+                after_seconds,
+                last_message_id,
+                last_posted_at,
+                created_by,
+            ),
+        )
+        await self.conn.commit()
+
+    async def all_sticky_channel_ids(self) -> set[int]:
+        cur = await self.conn.execute("SELECT channel_id FROM sticky_messages")
+        return {row["channel_id"] for row in await cur.fetchall()}
+
+    async def get_sticky(self, channel_id: int) -> aiosqlite.Row | None:
+        cur = await self.conn.execute(
+            "SELECT * FROM sticky_messages WHERE channel_id = ?", (channel_id,)
+        )
+        return await cur.fetchone()
+
+    async def list_stickies(self, guild_id: int) -> list[aiosqlite.Row]:
+        cur = await self.conn.execute(
+            "SELECT * FROM sticky_messages WHERE guild_id = ? "
+            "ORDER BY active DESC, channel_id",
+            (guild_id,),
+        )
+        return await cur.fetchall()
+
+    async def set_sticky_active(self, channel_id: int, active: bool) -> int:
+        cur = await self.conn.execute(
+            "UPDATE sticky_messages SET active = ?, message_count = 0, "
+            "updated_at = datetime('now') WHERE channel_id = ?",
+            (int(active), channel_id),
+        )
+        await self.conn.commit()
+        return cur.rowcount
+
+    async def set_sticky_speed(
+        self, channel_id: int, every_messages: int, after_seconds: int
+    ) -> int:
+        cur = await self.conn.execute(
+            "UPDATE sticky_messages SET every_messages = ?, after_seconds = ?, "
+            "message_count = 0, updated_at = datetime('now') WHERE channel_id = ?",
+            (every_messages, after_seconds, channel_id),
+        )
+        await self.conn.commit()
+        return cur.rowcount
+
+    async def set_sticky_message_count(self, channel_id: int, count: int) -> None:
+        await self.conn.execute(
+            "UPDATE sticky_messages SET message_count = ? WHERE channel_id = ?",
+            (count, channel_id),
+        )
+        await self.conn.commit()
+
+    async def mark_sticky_posted(
+        self, channel_id: int, message_id: int, posted_at: float
+    ) -> None:
+        await self.conn.execute(
+            "UPDATE sticky_messages SET message_count = 0, last_message_id = ?, "
+            "last_posted_at = ? WHERE channel_id = ?",
+            (message_id, posted_at, channel_id),
+        )
+        await self.conn.commit()
+
+    async def delete_sticky(self, channel_id: int) -> int:
+        cur = await self.conn.execute(
+            "DELETE FROM sticky_messages WHERE channel_id = ?", (channel_id,)
         )
         await self.conn.commit()
         return cur.rowcount

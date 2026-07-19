@@ -30,6 +30,9 @@ suggestions from the server.
 - **Welcome & goodbye** — welcome card image (avatar + name), a start-here
   checklist, and member-count milestones on join; a short farewell with user ID
   on leave. Requires the Server Members privileged intent (dev portal toggle).
+- **Sticky messages** — persistent per-channel text or embed notices that stay at
+  the bottom of active chats, with adjustable message/time thresholds. Settings
+  survive restarts and mentions are rendered without repeatedly pinging users.
 
 ## Slash commands
 
@@ -57,6 +60,11 @@ suggestions from the server.
 | `/setgoodbye [channel]` | Post goodbye messages there *(Manage Server)* |
 | `/postrules [channel]` | Post the server rules embed *(Manage Server)* |
 | `/postpanel <panel> [channel]` | Post a self-role panel (buttons/dropdown) *(Manage Server)* |
+| `/stick <message> [style] [image_url] [every_messages] [after_seconds]` | Create or replace this channel's sticky *(Manage Messages)* |
+| `/stickstop` / `/stickstart` | Pause or resume this channel's sticky *(Manage Messages)* |
+| `/stickremove` | Permanently remove this channel's sticky *(Manage Messages)* |
+| `/stickies` | List all saved stickies in the server *(Manage Messages)* |
+| `/stickspeed [every_messages] [after_seconds]` | View or change repost thresholds *(Manage Messages)* |
 
 ## Setup
 
