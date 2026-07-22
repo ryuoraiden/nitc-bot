@@ -38,6 +38,11 @@ def _valid_image_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+def expand_line_breaks(value: str) -> str:
+    """Allow multiline stickies from Discord's single-line slash-command field."""
+    return value.replace(r"\n", "\n")
+
+
 def _embed_for(row) -> discord.Embed:
     embed = discord.Embed(description=row["content"], color=0xF2B84B)
     if row["image_url"]:
@@ -139,6 +144,7 @@ class Stickies(commands.Cog):
 
         await interaction.response.defer(ephemeral=True, thinking=True)
         channel = interaction.channel
+        message = expand_line_breaks(message)
         # Hold the channel lock so an in-flight on_message repost can't
         # interleave and orphan one of the sticky messages.
         async with self._locks[channel.id]:
