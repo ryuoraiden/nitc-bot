@@ -4,11 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bot.cogs.stickies import should_repost
+from bot.cogs.stickies import expand_line_breaks, should_repost
 from bot.db import Database
 
 
 class StickyThresholdTests(unittest.TestCase):
+    def test_literal_newline_escape_becomes_line_break(self):
+        self.assertEqual(expand_line_breaks(r"First line\nSecond line"), "First line\nSecond line")
+
     def test_either_enabled_threshold_reposts(self):
         self.assertTrue(should_repost(5, 2, 5, 15))
         self.assertTrue(should_repost(1, 15, 5, 15))

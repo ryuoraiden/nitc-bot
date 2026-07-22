@@ -66,6 +66,9 @@ suggestions from the server.
 | `/stickies` | List all saved stickies in the server *(Manage Messages)* |
 | `/stickspeed [every_messages] [after_seconds]` | View or change repost thresholds *(Manage Messages)* |
 
+Discord's slash-command input is single-line. Use `\n` inside `/stick` text to
+insert a line break (for example, `First line\nSecond line`).
+
 ## Setup
 
 1. **Create the bot application**
