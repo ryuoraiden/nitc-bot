@@ -33,6 +33,10 @@ suggestions from the server.
 - **Sticky messages** — persistent per-channel text or embed notices that stay at
   the bottom of active chats, with adjustable message/time thresholds. Settings
   survive restarts and mentions are rendered without repeatedly pinging users.
+- **Giveaways** — button entry with a live entrant count, optional role
+  requirements and bonus entries, and an automatic weighted draw at the deadline.
+  Entrants are re-checked when the draw runs, and a restart can't eat a giveaway:
+  anything that expired while the bot was down is drawn on boot.
 
 ## Slash commands
 
@@ -65,9 +69,19 @@ suggestions from the server.
 | `/stickremove` | Permanently remove this channel's sticky *(Manage Messages)* |
 | `/stickies` | List all saved stickies in the server *(Manage Messages)* |
 | `/stickspeed [every_messages] [after_seconds]` | View or change repost thresholds *(Manage Messages)* |
+| `/giveaway create <prize> <duration> [channel] [host] [winners] [required_role_1..3] [role_logic] [extra_entry_role] [extra_entries] [image] [description]` | Start a giveaway *(Manage Server)* |
+| `/giveaway end [giveaway_id]` | End it now and draw winners *(Manage Server)* |
+| `/giveaway reroll [giveaway_id] [winners]` | Draw replacements, excluding previous winners *(Manage Server)* |
+| `/giveaway cancel [giveaway_id]` | Cancel a giveaway, nobody wins *(Manage Server)* |
+| `/giveaway entries [giveaway_id]` | See who entered *(Manage Server)* |
+| `/giveaway list` | Show active giveaways |
 
 Discord's slash-command input is single-line. Use `\n` inside `/stick` text to
 insert a line break (for example, `First line\nSecond line`).
+
+Giveaway durations accept combined units between 10 seconds and 60 days: `1d`,
+`12h`, `2h30m`, `1d6h`. Members enter with the **Enter** button and press it
+again to leave; **Participants** shows the current count and their own entries.
 
 ## Setup
 
@@ -118,6 +132,7 @@ bot/
   config.py          env/.env configuration
   db.py              SQLite (aiosqlite) persistence
   bulletins.py       notice classification rules and bulletin metadata
+  giveaway.py        duration parsing + weighted winner drawing (pure logic)
   services.py        contest fetching (clist + CF fallback, de-dup)
   platforms/
     base.py          Contest / PlatformUser models
@@ -129,6 +144,7 @@ bot/
     contests.py      /contests, /setchannel, /setrole + reminder scheduler
     notices.py       notice watcher, /bulletin, and daily digest scheduler
     linking.py       /link, /verify, /unlink, /profile
+    giveaways.py     /giveaway group, entry buttons, and the draw scheduler
 ```
 
 ## Deploying (24/7 on a VPS)
