@@ -31,6 +31,7 @@ INITIAL_COGS = [
     "bot.cogs.rules",
     "bot.cogs.reaction_roles",
     "bot.cogs.stickies",
+    "bot.cogs.giveaways",
 ]
 
 
