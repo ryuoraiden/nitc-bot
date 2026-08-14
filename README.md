@@ -76,8 +76,9 @@ suggestions from the server.
 | `/giveaway entries [giveaway_id]` | See who entered *(Manage Server)* |
 | `/giveaway list` | Show active giveaways |
 
-Discord's slash-command input is single-line. Use `\n` inside `/stick` text to
-insert a line break (for example, `First line\nSecond line`).
+Discord's slash-command input is single-line. Use `\n` inside `/stick` text or a
+`/giveaway create` description to insert a line break (for example,
+`First line\nSecond line`).
 
 Giveaway durations accept combined units between 10 seconds and 60 days: `1d`,
 `12h`, `2h30m`, `1d6h`. Members enter with the **Enter** button and press it
