@@ -23,6 +23,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..giveaway import draw_winners, parse_duration
+from ..text import expand_line_breaks
 
 log = logging.getLogger(__name__)
 
@@ -360,7 +361,7 @@ class Giveaways(commands.Cog):
         extra_entry_role="Role that gets bonus entries",
         extra_entries="How many bonus entries that role gets (default 1)",
         image="Image shown on the giveaway",
-        description="Extra details or claim instructions",
+        description=r"Extra details or claim instructions (\n for a line break)",
     )
     @app_commands.choices(
         role_logic=[
@@ -409,7 +410,7 @@ class Giveaways(commands.Cog):
 
         gid = await self.db.create_giveaway(
             prize=prize[:100],
-            description=description,
+            description=expand_line_breaks(description) if description else None,
             host_id=host.id,
             guild_id=interaction.guild_id,
             channel_id=target.id,

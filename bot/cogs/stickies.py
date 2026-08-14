@@ -18,6 +18,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from ..text import expand_line_breaks
+
 log = logging.getLogger(__name__)
 
 
@@ -37,10 +39,6 @@ def _valid_image_url(value: str) -> bool:
     parsed = urlparse(value)
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
-
-def expand_line_breaks(value: str) -> str:
-    """Allow multiline stickies from Discord's single-line slash-command field."""
-    return value.replace(r"\n", "\n")
 
 
 def _embed_for(row) -> discord.Embed:
