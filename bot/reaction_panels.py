@@ -65,7 +65,6 @@ PANELS: dict[str, dict] = {
         ),
         "sections": [
             ("🏫 Student Bodies", [
-                ("🏛️", "SAC", None),
                 ("🎓", "SGB", None),
             ]),
             ("🛠️ Technical & Professional Clubs", [

@@ -64,6 +64,7 @@ suggestions from the server.
 | `/setgoodbye [channel]` | Post goodbye messages there *(Manage Server)* |
 | `/postrules [channel]` | Post the server rules embed *(Manage Server)* |
 | `/postpanel <panel> [channel]` | Post a self-role panel (buttons/dropdown) *(Manage Server)* |
+| `/editpanel <panel> <message>` | Update an already-posted panel in place *(Manage Server)* |
 | `/stick <message> [style] [image_url] [every_messages] [after_seconds]` | Create or replace this channel's sticky *(Manage Messages)* |
 | `/stickstop` / `/stickstart` | Pause or resume this channel's sticky *(Manage Messages)* |
 | `/stickremove` | Permanently remove this channel's sticky *(Manage Messages)* |
@@ -120,6 +121,12 @@ with `BULLETIN_DIGEST_HOUR` and `BULLETIN_TIMEZONE` in `.env`. Enabling a digest
 starts with notices discovered afterward, so the first digest does not replay
 the bot's entire notice history. Notices that match no category still appear in
 the digest under "Other", so digest-only servers never miss one.
+
+Self-role panel text lives in `bot/reaction_panels.py`. After changing it,
+deploy and run `/editpanel <panel> <message link>` to re-render the panel onto
+its existing message, keeping its position and pins. `/postpanel` posts a fresh
+one instead. Both are safe to re-run: the role id is encoded in each component,
+so no per-message state is stored.
 
 Bulletin tags are deterministic keyword matches against notice titles. Always
 open the linked PDF for authoritative dates and eligibility details; the bot

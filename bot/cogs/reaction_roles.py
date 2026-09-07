@@ -5,6 +5,9 @@ each component's custom_id, so buttons and dropdowns keep working across bot
 restarts with no per-message state to store or re-register.
 
 /postpanel <panel> [channel] — post a self-role panel (Manage Server)
+/editpanel <panel> <message> — re-render a panel onto its existing message,
+    so text edits in reaction_panels.py land without losing the message's
+    position, pins, or replies (Manage Server)
 
 Needs the Manage Roles permission and the bot's top role above every role it
 hands out.
@@ -187,6 +190,46 @@ def _build_view(panel: dict, resolved: dict[str, discord.Role]) -> discord.ui.Vi
     return view
 
 
+def _resolve_roles(guild: discord.Guild, spec: dict):
+    """Match every entry in a panel to a live role. -> (resolved, missing, too_high)."""
+    resolved: dict[str, discord.Role] = {}
+    missing: list[str] = []
+    too_high: list[str] = []
+    me_top = guild.me.top_role
+    for _, role_query, _ in _iter_entries(spec):
+        role = _find_role(guild, role_query)
+        if role is None:
+            missing.append(role_query)
+        else:
+            resolved[role_query] = role
+            if role >= me_top:
+                too_high.append(role.name)
+    return resolved, missing, too_high
+
+
+def _wiring_report(guild: discord.Guild, lead: str, missing, too_high) -> str:
+    report = [lead]
+    if not guild.me.guild_permissions.manage_roles:
+        report.append("⚠️ I don't have **Manage Roles**, so nothing will assign until you grant it.")
+    if too_high:
+        report.append("⚠️ Above my top role (won't assign until I'm moved up): " + ", ".join(too_high))
+    if missing:
+        report.append("⚠️ Couldn't find roles named: " + ", ".join(f"`{m}`" for m in missing)
+                      + " (rename them to match, or tell me the exact names).")
+    return "\n".join(report)
+
+
+def parse_message_ref(raw: str) -> tuple[int | None, int]:
+    """Accept a message link or a bare message id. -> (channel_id or None, message_id)."""
+    raw = raw.strip()
+    link = re.search(r"/channels/(?:\d+|@me)/(\d+)/(\d+)", raw)
+    if link:
+        return int(link.group(1)), int(link.group(2))
+    if raw.isdigit() and 15 <= len(raw) <= 25:
+        return None, int(raw)
+    raise ValueError("not a message link or id")
+
+
 class ReactionRoles(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -209,18 +252,7 @@ class ReactionRoles(commands.Cog):
         spec = PANELS[panel.value]
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        resolved: dict[str, discord.Role] = {}
-        missing: list[str] = []
-        too_high: list[str] = []
-        me_top = interaction.guild.me.top_role
-        for _, role_query, _ in _iter_entries(spec):
-            role = _find_role(interaction.guild, role_query)
-            if role is None:
-                missing.append(role_query)
-            else:
-                resolved[role_query] = role
-                if role >= me_top:
-                    too_high.append(role.name)
+        resolved, missing, too_high = _resolve_roles(interaction.guild, spec)
 
         try:
             await target.send(embed=_build_embed(spec, resolved), view=_build_view(spec, resolved))
@@ -231,17 +263,78 @@ class ReactionRoles(commands.Cog):
             )
             return
 
-        report = [f"✅ Posted **{panel.name}** in {target.mention} · **{len(resolved)}** roles wired."]
-        if not interaction.guild.me.guild_permissions.manage_roles:
-            report.append("⚠️ I don't have **Manage Roles**, so nothing will assign until you grant it.")
-        if too_high:
-            report.append("⚠️ Above my top role (won't assign until I'm moved up): " + ", ".join(too_high))
-        if missing:
-            report.append("⚠️ Couldn't find roles named: " + ", ".join(f"`{m}`" for m in missing)
-                          + " (rename them to match, or tell me the exact names).")
-        await interaction.followup.send("\n".join(report), ephemeral=True)
+        lead = f"✅ Posted **{panel.name}** in {target.mention} · **{len(resolved)}** roles wired."
+        await interaction.followup.send(
+            _wiring_report(interaction.guild, lead, missing, too_high), ephemeral=True
+        )
+
+    @app_commands.command(name="editpanel", description="Update an already-posted self-role panel in place.")
+    @app_commands.describe(panel="Which panel", message="Message link (or id) of the panel to update")
+    @app_commands.choices(panel=_PANEL_CHOICES)
+    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.guild_only()
+    async def editpanel(
+        self,
+        interaction: discord.Interaction,
+        panel: app_commands.Choice[str],
+        message: str,
+    ):
+        try:
+            channel_id, message_id = parse_message_ref(message)
+        except ValueError:
+            await interaction.response.send_message(
+                "Give me a message link (right-click the panel → Copy Message Link) or its id.",
+                ephemeral=True,
+            )
+            return
+
+        # get_channel_or_thread so panels posted inside a thread still resolve.
+        target = (
+            interaction.guild.get_channel_or_thread(channel_id) if channel_id
+            else interaction.channel
+        )
+        if not isinstance(target, discord.abc.Messageable):
+            await interaction.response.send_message("I can't read that channel.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            existing = await target.fetch_message(message_id)
+        except discord.NotFound:
+            await interaction.followup.send(
+                "No message with that id there. If you pasted a bare id, run this in the "
+                "panel's own channel, or paste the full message link instead.",
+                ephemeral=True,
+            )
+            return
+        except discord.Forbidden:
+            await interaction.followup.send(
+                f"I need View Channel + Read Message History in {target.mention}.", ephemeral=True
+            )
+            return
+
+        if existing.author.id != self.bot.user.id:
+            await interaction.followup.send(
+                "I can only edit my own messages, and that one isn't mine.", ephemeral=True
+            )
+            return
+
+        spec = PANELS[panel.value]
+        resolved, missing, too_high = _resolve_roles(interaction.guild, spec)
+        try:
+            await existing.edit(embed=_build_embed(spec, resolved), view=_build_view(spec, resolved))
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Discord rejected the edit ({e}).", ephemeral=True)
+            return
+
+        lead = (f"✅ Updated **{panel.name}** at {existing.jump_url} · "
+                f"**{len(resolved)}** roles wired.")
+        await interaction.followup.send(
+            _wiring_report(interaction.guild, lead, missing, too_high), ephemeral=True
+        )
 
     @postpanel.error
+    @editpanel.error
     async def _perm_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.MissingPermissions):
             await interaction.response.send_message(
