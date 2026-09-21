@@ -12,6 +12,7 @@ from bot.cogs.teamup import (
     build_card,
     build_guide,
     card_view,
+    format_links,
     normalize_skills,
     pick_tags,
 )
@@ -164,3 +165,25 @@ class GuideTests(unittest.TestCase):
         names = [f.name for f in embed.fields]
         self.assertNotIn("🔔 Get notified", names)
         self.assertNotIn(" in None", " ".join(f.value for f in embed.fields))
+
+
+class LinkTests(unittest.TestCase):
+    def test_line_breaks_are_kept(self):
+        self.assertEqual(format_links("https://a.com\n\nhttps://b.com\n"), "https://a.com\nhttps://b.com")
+
+    def test_literal_backslash_n_like_stick(self):
+        self.assertEqual(format_links(r"https://a.com\nhttps://b.com"), "https://a.com\nhttps://b.com")
+
+    def test_urls_on_one_line_are_split(self):
+        self.assertEqual(
+            format_links("https://a.com, https://b.com www.c.com"),
+            "https://a.com\nhttps://b.com\nwww.c.com",
+        )
+
+    def test_labelled_lines_left_alone(self):
+        text = "GitHub: https://a.com Portfolio: https://b.com"
+        self.assertEqual(format_links(text), text)
+
+    def test_empty(self):
+        self.assertIsNone(format_links(""))
+        self.assertIsNone(format_links("   \n  "))

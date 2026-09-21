@@ -86,6 +86,31 @@ def normalize_skills(raw: str | None) -> list[str]:
     return out[:10]
 
 
+_URL = re.compile(r"^(?:https?://|www\.)\S+$", re.IGNORECASE)
+
+
+def format_links(raw: str | None) -> str | None:
+    """Tidy the Links field into one entry per line.
+
+    Line breaks are kept (including a typed literal \\n, like /stick). A line made
+    up only of URLs separated by spaces/commas is split one URL per line; lines
+    with labels ("GitHub: https://...") are left exactly as typed.
+    """
+    if not raw:
+        return None
+    out: list[str] = []
+    for line in raw.replace(r"\n", "\n").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        tokens = [t for t in re.split(r"[\s,;|]+", line) if t]
+        if len(tokens) > 1 and all(_URL.match(t) for t in tokens):
+            out.extend(tokens)
+        else:
+            out.append(line)
+    return "\n".join(out) or None
+
+
 def pick_tags(available, kind: str, skills: list[str], *, closed: bool = False) -> list:
     """Map a post onto the forum's existing tags by name (case-insensitive), max 5."""
     by_name = {t.name.lower(): t for t in available}
@@ -281,7 +306,11 @@ class LFTModal(discord.ui.Modal):
             max_length=1000,
         )
         self.links = discord.ui.TextInput(
-            label="Links (GitHub, portfolio, idea doc)", required=False, max_length=300
+            label="Links (one per line)",
+            style=discord.TextStyle.paragraph,
+            placeholder="GitHub, portfolio, idea doc... press Enter between links",
+            required=False,
+            max_length=500,
         )
         for item in (self.hackathon, self.skills, self.slots, self.about, self.links):
             self.add_item(item)
@@ -295,7 +324,7 @@ class LFTModal(discord.ui.Modal):
             skills_raw=self.skills.value,
             slots=self.slots.value.strip() or None,
             about=self.about.value.strip() or None,
-            links=self.links.value.strip() or None,
+            links=format_links(self.links.value),
         )
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
