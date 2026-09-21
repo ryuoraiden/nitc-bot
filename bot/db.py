@@ -10,6 +10,8 @@ notices_seen    fetched NITC notices and their bulletin priority.
 notice_tags     many-to-many bulletin tags for stored notices.
 giveaways       one row per giveaway, with its role rules and draw state.
 giveaway_entries who entered which giveaway, and with how many entries.
+lft_posts       hackathon team-up cards posted with /lft.
+lft_interests   who clicked "I'm interested" on which card, and their chat thread.
 """
 from __future__ import annotations
 
@@ -31,7 +33,39 @@ CREATE TABLE IF NOT EXISTS guilds (
     notice_delivery    TEXT NOT NULL DEFAULT 'immediate',
     digest_enabled_at  TEXT,
     welcome_channel    INTEGER,
-    goodbye_channel    INTEGER
+    goodbye_channel    INTEGER,
+    teamup_forum       INTEGER,
+    teamup_connect     INTEGER,
+    teamup_role        INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS lft_posts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id    INTEGER NOT NULL,
+    author_id   INTEGER NOT NULL,
+    kind        TEXT NOT NULL,
+    hackathon   TEXT NOT NULL,
+    skills      TEXT NOT NULL DEFAULT '',
+    slots       TEXT,
+    about       TEXT,
+    links       TEXT,
+    thread_id   INTEGER,
+    message_id  INTEGER,
+    pinged      INTEGER NOT NULL DEFAULT 0,
+    status      TEXT NOT NULL DEFAULT 'open',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    closed_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_lft_posts_author
+    ON lft_posts(guild_id, author_id, status);
+
+CREATE TABLE IF NOT EXISTS lft_interests (
+    post_id     INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    thread_id   INTEGER,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (post_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS notices_seen (
@@ -179,6 +213,9 @@ class Database:
             "ALTER TABLE guilds ADD COLUMN goodbye_channel INTEGER",
             "ALTER TABLE guilds ADD COLUMN notice_delivery TEXT NOT NULL DEFAULT 'immediate'",
             "ALTER TABLE guilds ADD COLUMN digest_enabled_at TEXT",
+            "ALTER TABLE guilds ADD COLUMN teamup_forum INTEGER",
+            "ALTER TABLE guilds ADD COLUMN teamup_connect INTEGER",
+            "ALTER TABLE guilds ADD COLUMN teamup_role INTEGER",
             "ALTER TABLE notices_seen ADD COLUMN bulletin_priority INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE notices_seen ADD COLUMN classification_version INTEGER NOT NULL DEFAULT 0",
         ):
@@ -800,3 +837,122 @@ class Database:
             "SELECT COUNT(*) AS n FROM giveaway_entries WHERE giveaway_id = ?", (gid,)
         ) as cur:
             return (await cur.fetchone())["n"]
+
+    # ── hackathon team-up (/lft) ──────────────────────────
+    async def set_teamup_config(
+        self, guild_id: int, forum_id: int, connect_id: int, role_id: int | None
+    ) -> None:
+        await self.conn.execute(
+            "INSERT INTO guilds (guild_id, teamup_forum, teamup_connect, teamup_role) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(guild_id) DO UPDATE SET "
+            "teamup_forum = excluded.teamup_forum, teamup_connect = excluded.teamup_connect, "
+            "teamup_role = excluded.teamup_role",
+            (guild_id, forum_id, connect_id, role_id),
+        )
+        await self.conn.commit()
+
+    async def create_lft_post(
+        self,
+        *,
+        guild_id: int,
+        author_id: int,
+        kind: str,
+        hackathon: str,
+        skills: str,
+        slots: str | None,
+        about: str | None,
+        links: str | None,
+    ) -> int:
+        cur = await self.conn.execute(
+            "INSERT INTO lft_posts (guild_id, author_id, kind, hackathon, skills, slots, about, links) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, author_id, kind, hackathon, skills, slots, about, links),
+        )
+        await self.conn.commit()
+        return cur.lastrowid
+
+    async def set_lft_post_message(
+        self, post_id: int, thread_id: int, message_id: int, pinged: bool
+    ) -> None:
+        await self.conn.execute(
+            "UPDATE lft_posts SET thread_id = ?, message_id = ?, pinged = ? WHERE id = ?",
+            (thread_id, message_id, int(pinged), post_id),
+        )
+        await self.conn.commit()
+
+    async def delete_lft_post(self, post_id: int) -> None:
+        await self.conn.execute("DELETE FROM lft_interests WHERE post_id = ?", (post_id,))
+        await self.conn.execute("DELETE FROM lft_posts WHERE id = ?", (post_id,))
+        await self.conn.commit()
+
+    async def get_lft_post(self, post_id: int) -> aiosqlite.Row | None:
+        cur = await self.conn.execute("SELECT * FROM lft_posts WHERE id = ?", (post_id,))
+        return await cur.fetchone()
+
+    async def count_open_lft_posts(self, guild_id: int, author_id: int) -> int:
+        cur = await self.conn.execute(
+            "SELECT COUNT(*) AS n FROM lft_posts "
+            "WHERE guild_id = ? AND author_id = ? AND status = 'open'",
+            (guild_id, author_id),
+        )
+        return (await cur.fetchone())["n"]
+
+    async def lft_pinged_recently(self, guild_id: int, author_id: int, hours: int = 24) -> bool:
+        cur = await self.conn.execute(
+            "SELECT 1 FROM lft_posts WHERE guild_id = ? AND author_id = ? AND pinged = 1 "
+            "AND created_at >= datetime('now', ?) LIMIT 1",
+            (guild_id, author_id, f"-{int(hours)} hours"),
+        )
+        return await cur.fetchone() is not None
+
+    async def add_lft_interest(self, post_id: int, user_id: int) -> bool:
+        """Record interest. Returns False if this user already expressed interest."""
+        cur = await self.conn.execute(
+            "INSERT OR IGNORE INTO lft_interests (post_id, user_id) VALUES (?, ?)",
+            (post_id, user_id),
+        )
+        await self.conn.commit()
+        return cur.rowcount == 1
+
+    async def get_lft_interest(self, post_id: int, user_id: int) -> aiosqlite.Row | None:
+        cur = await self.conn.execute(
+            "SELECT * FROM lft_interests WHERE post_id = ? AND user_id = ?", (post_id, user_id)
+        )
+        return await cur.fetchone()
+
+    async def set_lft_interest_thread(self, post_id: int, user_id: int, thread_id: int) -> None:
+        await self.conn.execute(
+            "UPDATE lft_interests SET thread_id = ? WHERE post_id = ? AND user_id = ?",
+            (thread_id, post_id, user_id),
+        )
+        await self.conn.commit()
+
+    async def remove_lft_interest(self, post_id: int, user_id: int) -> None:
+        await self.conn.execute(
+            "DELETE FROM lft_interests WHERE post_id = ? AND user_id = ?", (post_id, user_id)
+        )
+        await self.conn.commit()
+
+    async def count_lft_interests(self, post_id: int) -> int:
+        cur = await self.conn.execute(
+            "SELECT COUNT(*) AS n FROM lft_interests WHERE post_id = ?", (post_id,)
+        )
+        return (await cur.fetchone())["n"]
+
+    async def close_lft_post(self, post_id: int, status: str = "closed") -> bool:
+        """Close an open post. Returns False if it was already closed/expired."""
+        assert status in {"closed", "expired"}
+        cur = await self.conn.execute(
+            "UPDATE lft_posts SET status = ?, closed_at = datetime('now') "
+            "WHERE id = ? AND status = 'open'",
+            (status, post_id),
+        )
+        await self.conn.commit()
+        return cur.rowcount == 1
+
+    async def stale_lft_posts(self, days: int) -> list[aiosqlite.Row]:
+        cur = await self.conn.execute(
+            "SELECT * FROM lft_posts WHERE status = 'open' AND created_at <= datetime('now', ?)",
+            (f"-{int(days)} days",),
+        )
+        return await cur.fetchall()

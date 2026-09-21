@@ -33,6 +33,11 @@ suggestions from the server.
 - **Sticky messages** — persistent per-channel text or embed notices that stay at
   the bottom of active chats, with adjustable message/time thresholds. Settings
   survive restarts and mentions are rendered without repeatedly pinging users.
+- **Hackathon team-up** — `/lft` posts a looking-for-team card to a forum,
+  auto-tagged by skill. **I'm interested** opens a private thread between the
+  two people, so nobody has to cold-DM a stranger, and **Team full** closes the
+  card. Optional Team Up role ping (once per 24 h), max 3 open cards each, and
+  cards expire after 30 days.
 - **Giveaways** — button entry with a live entrant count, optional role
   requirements and bonus entries, and an automatic weighted draw at the deadline.
   Entrants are re-checked when the draw runs, and a restart can't eat a giveaway:
@@ -70,6 +75,8 @@ suggestions from the server.
 | `/stickremove` | Permanently remove this channel's sticky *(Manage Messages)* |
 | `/stickies` | List all saved stickies in the server *(Manage Messages)* |
 | `/stickspeed [every_messages] [after_seconds]` | View or change repost thresholds *(Manage Messages)* |
+| `/lft <type> [ping]` | Post a hackathon looking-for-team / looking-for-members card |
+| `/setteamup <forum> <connect_channel> [ping_role]` | Configure the team-up board and create its forum tags *(Manage Server)* |
 | `/giveaway create <prize> <duration> [channel] [host] [winners] [required_role_1..3] [role_logic] [extra_entry_role] [extra_entries] [image] [description]` | Start a giveaway *(Manage Server)* |
 | `/giveaway end [giveaway_id]` | End it now and draw winners *(Manage Server)* |
 | `/giveaway reroll [giveaway_id] [winners]` | Draw replacements, excluding previous winners *(Manage Server)* |
