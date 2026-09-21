@@ -77,6 +77,7 @@ suggestions from the server.
 | `/stickspeed [every_messages] [after_seconds]` | View or change repost thresholds *(Manage Messages)* |
 | `/lft <type> [ping]` | Post a hackathon looking-for-team / looking-for-members card |
 | `/setteamup <forum> <connect_channel> [ping_role]` | Configure the team-up board and create its forum tags *(Manage Server)* |
+| `/teamupinfo [channel]` | Post a public how-to guide for the team-up board *(Manage Server)* |
 | `/giveaway create <prize> <duration> [channel] [host] [winners] [required_role_1..3] [role_logic] [extra_entry_role] [extra_entries] [image] [description]` | Start a giveaway *(Manage Server)* |
 | `/giveaway end [giveaway_id]` | End it now and draw winners *(Manage Server)* |
 | `/giveaway reroll [giveaway_id] [winners]` | Draw replacements, excluding previous winners *(Manage Server)* |

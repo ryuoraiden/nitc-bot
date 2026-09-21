@@ -10,6 +10,7 @@ from bot.cogs.teamup import (
     FORUM_TAG_LIMIT,
     MAX_TAGS,
     build_card,
+    build_guide,
     card_view,
     normalize_skills,
     pick_tags,
@@ -148,3 +149,18 @@ class TeamUpDatabaseTests(unittest.IsolatedAsyncioTestCase):
         await self.db.delete_lft_post(pid)
         self.assertIsNone(await self.db.get_lft_post(pid))
         self.assertEqual(await self.db.count_lft_interests(pid), 0)
+
+
+class GuideTests(unittest.TestCase):
+    def test_guide_with_everything(self):
+        embed = build_guide("<#1>", "<#2>", "<@&3>")
+        text = " ".join(f.value for f in embed.fields)
+        for needle in ("/lft", "<#1>", "<#2>", "<@&3>", "Team full", "I'm interested"):
+            self.assertIn(needle, text)
+        self.assertLessEqual(len(embed), 6000)
+
+    def test_guide_without_optional_parts(self):
+        embed = build_guide("<#1>", None, None)
+        names = [f.name for f in embed.fields]
+        self.assertNotIn("🔔 Get notified", names)
+        self.assertNotIn(" in None", " ".join(f.value for f in embed.fields))

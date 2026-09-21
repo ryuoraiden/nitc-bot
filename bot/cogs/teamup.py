@@ -2,6 +2,7 @@
 
 /lft <type> [ping]                                   post a looking-for-team card
 /setteamup <forum> <connect_channel> [ping_role]     configure it (Manage Server)
+/teamupinfo [channel]                                post a public how-to guide (Manage Server)
 
 Each card is a forum post with two persistent buttons (DynamicItem with the post
 id in the custom_id, so they keep working across restarts):
@@ -145,6 +146,51 @@ def build_card(post, *, author=None, handles: list[str] | None = None, intereste
         embed.timestamp = datetime.fromisoformat(post["created_at"]).replace(tzinfo=timezone.utc)
     except (TypeError, ValueError):
         pass
+    return embed
+
+
+def build_guide(forum_mention: str, connect_mention: str | None, role_mention: str | None) -> discord.Embed:
+    """Public, member-facing explainer for the team-up board."""
+    embed = discord.Embed(
+        title="🏆 Find hackathon teammates",
+        description=("No more asking around in chat. Post a card, and anyone who wants "
+                     "to team up can reach you privately in one tap."),
+        color=0xF1C40F,
+    )
+    embed.add_field(
+        name="📝 Post a card",
+        value=("`/lft type:Looking for members` if you have an idea and need people\n"
+               "`/lft type:Looking for a team` if you want to join one\n"
+               "Then fill in the form: hackathon, skills, team size, and a short about."),
+        inline=False,
+    )
+    embed.add_field(
+        name="📌 Browse",
+        value=(f"Every card lands in {forum_mention}, tagged by skill. Filter by tag "
+               "to find exactly what you need."),
+        inline=False,
+    )
+    where = f" in {connect_mention}" if connect_mention else ""
+    embed.add_field(
+        name="👋 Found one you like?",
+        value=(f"Tap **I'm interested**. The bot opens a private thread{where} with just you "
+               "and the poster. No cold DMs."),
+        inline=False,
+    )
+    embed.add_field(
+        name="✅ Team formed?",
+        value=(f"The poster taps **Team full** and the card closes. Open cards expire "
+               f"after {EXPIRE_DAYS} days."),
+        inline=False,
+    )
+    if role_mention:
+        embed.add_field(
+            name="🔔 Get notified",
+            value=(f"Grab {role_mention} in self-roles to hear about new cards. Posters can "
+                   f"add `ping:true` to notify it (once per {PING_COOLDOWN_HOURS}h)."),
+            inline=False,
+        )
+    embed.set_footer(text=f"Max {MAX_OPEN_POSTS} open cards per person")
     return embed
 
 
@@ -664,9 +710,34 @@ class TeamUp(commands.Cog):
                            "mentionable or give me Mention @everyone")
         if missing:
             report.append("⚠️ I still need: " + "; ".join(missing))
+        report.append("Run `/teamupinfo` to post a public how-to guide for members.")
         await interaction.followup.send(
             "\n".join(report), ephemeral=True, allowed_mentions=discord.AllowedMentions.none()
         )
+
+    @app_commands.command(name="teamupinfo", description="Post a public guide to the hackathon team-up board.")
+    @app_commands.describe(channel="Where to post it (defaults to this channel)")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.guild_only()
+    async def teamupinfo(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None):
+        forum, connect, role = await self._config(interaction.guild)
+        if forum is None:
+            await interaction.response.send_message("Run `/setteamup` first.", ephemeral=True)
+            return
+        target = channel or interaction.channel
+        embed = build_guide(
+            forum.mention,
+            connect.mention if connect else None,
+            role.mention if role else None,
+        )
+        try:
+            await target.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            await interaction.response.send_message(
+                f"I can't post in {target.mention} (need Send Messages + Embed Links).", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(f"✅ Guide posted in {target.mention}.", ephemeral=True)
 
     async def _ensure_tags(self, forum: discord.ForumChannel) -> list[str]:
         existing = {t.name.lower() for t in forum.available_tags}
