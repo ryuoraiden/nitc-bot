@@ -2,8 +2,10 @@
 
 The sticky is re-posted after either the configured number of new messages or
 the configured amount of time has elapsed (checked when a new message arrives).
-Only message metadata is used, so Discord's privileged Message Content intent
-is not required.
+Messages from people, other bots, webhooks and slash-command replies all count,
+since they all push the sticky up the channel; the bot's own sticky is the only
+message ignored. Only message metadata is used, so Discord's privileged Message
+Content intent is not required.
 """
 from __future__ import annotations
 
@@ -81,7 +83,7 @@ class Stickies(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
-        if message.guild is None or message.author.bot or message.webhook_id is not None:
+        if message.guild is None:
             return
         if message.channel.id not in self._sticky_channels:
             return
@@ -89,6 +91,13 @@ class Stickies(commands.Cog):
         async with self._locks[message.channel.id]:
             row = await self.bot.db.get_sticky(message.channel.id)
             if row is None or not row["active"]:
+                return
+            # Other bots, webhooks and slash-command replies push the sticky up
+            # just like human messages, so they all count. The one exception is
+            # our own sticky: counting it would re-trigger the repost forever.
+            # The per-channel lock guarantees mark_sticky_posted has already run
+            # by the time we see it, so last_message_id is up to date here.
+            if message.id == row["last_message_id"]:
                 return
 
             count = row["message_count"] + 1

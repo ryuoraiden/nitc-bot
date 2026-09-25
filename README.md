@@ -33,6 +33,8 @@ suggestions from the server.
 - **Sticky messages** — persistent per-channel text or embed notices that stay at
   the bottom of active chats, with adjustable message/time thresholds. Settings
   survive restarts and mentions are rendered without repeatedly pinging users.
+  Bot replies and slash-command output count toward the thresholds too, so the
+  sticky stays visible while commands are being used.
 - **Hackathon team-up** — `/lft` posts a looking-for-team card to a forum,
   auto-tagged by skill. **I'm interested** opens a private thread between the
   two people, so nobody has to cold-DM a stranger, and **Team full** closes the
