@@ -68,6 +68,7 @@ PANELS: dict[str, dict] = {
                 ("🎓", "SGB", None),
             ]),
             ("🛠️ Technical & Professional Clubs", [
+                ("🛡️", "Cybersecurity Club", None),
                 ("⚡", "IEEE SB", None),
                 ("🌐", "GDSC", None),
                 ("🐧", "FOSS Cell", None),
